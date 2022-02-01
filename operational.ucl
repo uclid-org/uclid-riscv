@@ -1,0 +1,197 @@
+module common {
+    type inst_t             = bv32;
+    type pc_t               = bv32;
+    type mem_word_addr_t    = bv30;
+    type mem_data_t         = bv32; // for simplicity, memory is word-addressed
+    type mem_t              = [mem_word_addr_t]mem_data_t;
+    type reg_data_t         = bv32;
+    type reg_addr_t         = bv5;
+    type regfile_t          = [reg_addr_t]reg_data_t;
+}
+
+module instructions {
+    type rtype_t = record { f7 : bv7, rs2: bv5, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
+    type itype_t = record { imm : bv12, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
+    type stype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
+    type btype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
+    type utype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
+    type jtype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
+
+    const OPCODE_I_MEM      : bv7 = 0b0000011bv7;
+    const OPCODE_I_ARITH    : bv7 = 0b0010011bv7;
+    const OPCODE_R          : bv7 = 0b0110011bv7;
+    const OPCODE_S          : bv7 = 0b0100011bv7;
+    const OPCODE_B          : bv7 = 0b1100011bv7;
+    const OPCODE_U          : bv7 = 0b0010111bv7;
+    const OPCODE_J          : bv7 = 0b1101111bv7;
+}
+
+module itype_arith {
+    type * = common.*;
+}
+
+// Very similar to cpu model in example 3.2 of tutorial
+// https://github.com/uclid-org/uclid/blob/master/tutorial/tutorial.pdf
+module cpu {
+    type * = common.*;
+    const * = instructions.*;
+
+    input imem  : mem_t;
+    var dmem    : mem_t;
+    var regfile : regfile_t;
+    var pc      : pc_t;
+    var inst    : inst_t;
+
+    define pc_to_mem_addr(pc : pc_t) : mem_word_addr_t = pc[31:2];
+
+    const F3_ADDI   : bv3 = 0b000bv3;
+    const F3_SLLI   : bv3 = 0b001bv3;
+    const F3_SLTI   : bv3 = 0b010bv3;
+    const F3_SLTIU  : bv3 = 0b011bv3;
+    const F3_XORI   : bv3 = 0b100bv3;
+    const F3_SRI    : bv3 = 0b101bv3;
+    const F3_ORI    : bv3 = 0b110bv3;
+    const F3_ANDI   : bv3 = 0b111bv3;
+
+    procedure compute_i_arith(f3 : bv3, rs1_val : reg_data_t, imm : bv12)
+        returns (rd_val : reg_data_t)
+    {
+        var fields : instructions.itype_t;
+        var imm_ext : reg_data_t;
+        var shamt : bv5;
+        imm_ext  = bv_sign_extend(20, imm);
+        shamt = imm[4:0];
+        case
+            (f3 == F3_ADDI) : { rd_val = rs1_val + imm_ext; }
+            // FIX: bv_left_shift seems not to type check until it reaches the smt backend
+            (f3 == F3_SLLI) : { rd_val = bv_left_shift(imm_ext, rs1_val); }
+            (f3 == F3_SLTI) : { if (imm_ext > rs1_val) { rd_val = 1bv32; } else { rd_val = 0bv32; } }
+            // TODO check how to do unsigned vs signed comparisons
+            (f3 == F3_SLTIU) : { if (imm_ext > rs1_val) { rd_val = 1bv32; } else { rd_val = 0bv32; } }
+            (f3 == F3_XORI) : { rd_val = rs1_val ^ imm_ext; }
+            (f3 == F3_SRI) : {
+                if (imm[10:10] == 0bv1) {
+                    // TODO double check behavior for upper immediate bits
+                    rd_val = bv_a_right_shift(bv_zero_extend(27, shamt), rs1_val);
+                } else {
+                    rd_val = bv_l_right_shift(bv_zero_extend(27, shamt), rs1_val);
+                }
+            }
+            (f3 == F3_ORI) : { rd_val = rs1_val | imm_ext; }
+            (f3 == F3_ANDI) : { rd_val = rs1_val & imm_ext; }
+            // TODO handle invalid instructions (restrict w/ assumption?)
+            default : { rd_val = 0bv32; }
+        esac
+    }
+
+
+    procedure exec_inst()
+        modifies pc, regfile, dmem;
+    {
+        var opcode : bv7;
+        var i_imm : bv12;
+        var rs1 : bv5;
+        var rd : bv5;
+        var f3 : bv3;
+        opcode = inst[6:0];
+        case
+            (opcode == OPCODE_I_ARITH) : {
+                i_imm = inst[31:20];
+                rs1 = inst[19:15];
+                rd = inst[11:7];
+                f3 = inst[14:12];
+                if (rd != 0bv5) {
+                    call (regfile[rd]) = compute_i_arith(f3, regfile[rs1], i_imm);
+                }
+                pc = pc + 4bv32;
+            } 
+            (opcode == OPCODE_I_MEM) : {
+                pc = pc + 4bv32;
+            }
+            (opcode == OPCODE_R) : {
+                pc = pc + 4bv32;
+            }
+            (opcode == OPCODE_S) : {
+                pc = pc + 4bv32;
+            }
+            (opcode == OPCODE_B) : {
+            }
+            (opcode == OPCODE_U) : {
+
+                pc = pc + 4bv32;
+            }
+            (opcode == OPCODE_J) : {
+            }
+        esac
+    }
+
+    init {
+        assume (forall (r : reg_addr_t) :: regfile[r] == 0bv32);
+        assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
+        inst = imem[0bv30];
+        pc = 0bv32;
+    }
+
+    next {
+        inst' = imem[pc_to_mem_addr(pc)];
+        call exec_inst();
+    }
+}
+
+module sanity {
+    type * = common.*;
+
+    var imem : mem_t;
+
+    instance cpu_0 : cpu (imem : (imem));
+
+    init {
+        imem[0bv30] = 0x00000013bv32; // nop
+        imem[1bv30] = 0x06400593bv32; // addi a1, x0, 100
+        imem[2bv30] = 0x0C800613bv32; // addi a2, x0, 200
+        imem[3bv30] = 0x06466593bv32; // ori  a1, a2, 100
+    }
+
+    next {
+        next (cpu_0);
+    }
+
+    invariant s1 : (cpu_0.pc == 12bv32) ==> (cpu_0.regfile[11bv5] == 100bv32);
+    invariant s2 : (cpu_0.pc == 16bv32) ==> (cpu_0.regfile[12bv5] == 200bv32);
+    invariant s3 : (cpu_0.pc == 20bv32) ==> (cpu_0.regfile[11bv5] == 236bv32);
+
+    control {
+        vobj = bmc(5);
+        check;
+        print_results;
+        vobj.print_cex(cpu_0.pc, cpu_0.inst, cpu_0.regfile);
+    }
+}
+
+module main {
+    type * = common.*;
+
+    var imem : mem_t;
+
+    instance cpu_1 : cpu (imem : (imem));
+    instance cpu_2 : cpu (imem : (imem));
+
+    init {}
+
+    next {
+        next (cpu_1);
+        next (cpu_2);
+    }
+
+    invariant eq_regs : (forall (r : reg_addr_t) :: cpu_1.regfile[r] == cpu_2.regfile[r]);
+    invariant eq_mem : (forall (a : mem_word_addr_t) :: cpu_1.dmem[a] == cpu_2.dmem[a]);
+    invariant eq_pc : (cpu_1.pc == cpu_2.pc);
+    invariant eq_inst : (cpu_1.inst == cpu_2.inst);
+
+    control {
+        vobj = bmc(3);
+        check;
+        print_results;
+        vobj.print_cex(cpu_1.inst, cpu_2.inst, cpu_1.regfile, cpu_2.regfile);
+    }
+}
