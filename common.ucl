@@ -1,0 +1,63 @@
+module common {
+    type inst_t             = bv32;
+    type pc_t               = bv32;
+    type mem_word_addr_t    = bv30;
+    type mem_data_t         = bv32; // for simplicity, memory is word-addressed
+    type mem_t              = [mem_word_addr_t]mem_data_t;
+    type reg_data_t         = bv32;
+    type reg_addr_t         = bv5;
+    type regfile_t          = [reg_addr_t]reg_data_t;
+
+    define pc_to_mem_addr(pc : pc_t) : mem_word_addr_t = pc[31:2];
+}
+
+module instructions {
+    type * = common.*;
+
+    type rtype_t = record { f7 : bv7, rs2: bv5, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
+    type itype_t = record { imm : bv12, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
+    type stype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
+    type btype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
+    type utype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
+    type jtype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
+
+    const OPCODE_I_MEM      : bv7 = 0b0000011bv7;
+    const OPCODE_I_ARITH    : bv7 = 0b0010011bv7;
+    const OPCODE_R          : bv7 = 0b0110011bv7;
+    const OPCODE_S          : bv7 = 0b0100011bv7;
+    const OPCODE_B          : bv7 = 0b1100011bv7;
+    const OPCODE_U          : bv7 = 0b0010111bv7;
+    const OPCODE_J          : bv7 = 0b1101111bv7;
+
+    define opcode(inst: inst_t) : bv7 = inst[6:0];
+    define i_imm(inst : inst_t) : bv12 = inst[31:20];
+    define s_imm(inst: inst_t) : bv12 = inst[31:25] ++ inst[11:7];
+    define rs2(inst : inst_t) : reg_addr_t = inst[24:20];
+    define rs1(inst : inst_t) : reg_addr_t = inst[19:15];
+    define rd(inst : inst_t) : reg_addr_t = inst[11:7];
+    define f3(inst : inst_t) : bv3 = inst[14:12];
+
+    const F3_ADDI   : bv3 = 0b000bv3;
+    const F3_SLLI   : bv3 = 0b001bv3;
+    const F3_SLTI   : bv3 = 0b010bv3;
+    const F3_SLTIU  : bv3 = 0b011bv3;
+    const F3_XORI   : bv3 = 0b100bv3;
+    const F3_SRI    : bv3 = 0b101bv3;
+    const F3_ORI    : bv3 = 0b110bv3;
+    const F3_ANDI   : bv3 = 0b111bv3;
+    const F3_LB     : bv3 = 0b000bv3;
+    const F3_LH     : bv3 = 0b001bv3;
+    const F3_LW     : bv3 = 0b010bv3;
+    // const F3_LD     : bv3 = 0b011bv3;
+    const F3_LBU    : bv3 = 0b100bv3;
+    const F3_LHU    : bv3 = 0b101bv3;
+    // const F3_LWU    : bv3 = 0b111bv3;
+    const F3_SB     : bv3 = 0b000bv3;
+    const F3_SH     : bv3 = 0b001bv3;
+    const F3_SW     : bv3 = 0b010bv3;
+
+    const x0        : bv5 = 0bv5;
+}
+module itype_arith {
+    type * = common.*;
+}

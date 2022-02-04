@@ -1,40 +1,11 @@
-module common {
-    type inst_t             = bv32;
-    type pc_t               = bv32;
-    type mem_word_addr_t    = bv30;
-    type mem_data_t         = bv32; // for simplicity, memory is word-addressed
-    type mem_t              = [mem_word_addr_t]mem_data_t;
-    type reg_data_t         = bv32;
-    type reg_addr_t         = bv5;
-    type regfile_t          = [reg_addr_t]reg_data_t;
-}
-
-module instructions {
-    type rtype_t = record { f7 : bv7, rs2: bv5, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
-    type itype_t = record { imm : bv12, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
-    type stype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
-    type btype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
-    type utype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
-    type jtype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
-
-    const OPCODE_I_MEM      : bv7 = 0b0000011bv7;
-    const OPCODE_I_ARITH    : bv7 = 0b0010011bv7;
-    const OPCODE_R          : bv7 = 0b0110011bv7;
-    const OPCODE_S          : bv7 = 0b0100011bv7;
-    const OPCODE_B          : bv7 = 0b1100011bv7;
-    const OPCODE_U          : bv7 = 0b0010111bv7;
-    const OPCODE_J          : bv7 = 0b1101111bv7;
-}
-
-module itype_arith {
-    type * = common.*;
-}
 
 // Very similar to cpu model in example 3.2 of tutorial
 // https://github.com/uclid-org/uclid/blob/master/tutorial/tutorial.pdf
 module cpu {
     type * = common.*;
+    define * = common.*;
     const * = instructions.*;
+    define * = instructions.*;
 
     input imem  : mem_t;
     var dmem    : mem_t;
@@ -42,29 +13,17 @@ module cpu {
     var pc      : pc_t;
     var inst    : inst_t;
 
-    define pc_to_mem_addr(pc : pc_t) : mem_word_addr_t = pc[31:2];
-
-    const F3_ADDI   : bv3 = 0b000bv3;
-    const F3_SLLI   : bv3 = 0b001bv3;
-    const F3_SLTI   : bv3 = 0b010bv3;
-    const F3_SLTIU  : bv3 = 0b011bv3;
-    const F3_XORI   : bv3 = 0b100bv3;
-    const F3_SRI    : bv3 = 0b101bv3;
-    const F3_ORI    : bv3 = 0b110bv3;
-    const F3_ANDI   : bv3 = 0b111bv3;
-
     procedure compute_i_arith(f3 : bv3, rs1_val : reg_data_t, imm : bv12)
         returns (rd_val : reg_data_t)
     {
-        var fields : instructions.itype_t;
         var imm_ext : reg_data_t;
-        var shamt : bv5;
+        var shamt : bv32;
         imm_ext  = bv_sign_extend(20, imm);
-        shamt = imm[4:0];
+        shamt = bv_zero_extend(27, imm[4:0]);
         case
             (f3 == F3_ADDI) : { rd_val = rs1_val + imm_ext; }
             // FIX: bv_left_shift seems not to type check until it reaches the smt backend
-            (f3 == F3_SLLI) : { rd_val = bv_left_shift(imm_ext, rs1_val); }
+            (f3 == F3_SLLI) : { rd_val = bv_left_shift(shamt, rs1_val); }
             (f3 == F3_SLTI) : { if (imm_ext > rs1_val) { rd_val = 1bv32; } else { rd_val = 0bv32; } }
             // TODO check how to do unsigned vs signed comparisons
             (f3 == F3_SLTIU) : { if (imm_ext > rs1_val) { rd_val = 1bv32; } else { rd_val = 0bv32; } }
@@ -72,9 +31,9 @@ module cpu {
             (f3 == F3_SRI) : {
                 if (imm[10:10] == 0bv1) {
                     // TODO double check behavior for upper immediate bits
-                    rd_val = bv_a_right_shift(bv_zero_extend(27, shamt), rs1_val);
+                    rd_val = bv_a_right_shift(shamt, rs1_val);
                 } else {
-                    rd_val = bv_l_right_shift(bv_zero_extend(27, shamt), rs1_val);
+                    rd_val = bv_l_right_shift(shamt, rs1_val);
                 }
             }
             (f3 == F3_ORI) : { rd_val = rs1_val | imm_ext; }
@@ -84,43 +43,90 @@ module cpu {
         esac
     }
 
+    procedure compute_i_mem(f3: bv3, rs1_val : reg_data_t, imm : bv12)
+        returns (rd_val : reg_data_t)
+    {
+        var addr : reg_data_t;
+        var word_addr : mem_word_addr_t;
+        var word_ofs : bv2;
+        var shifted_data : mem_data_t;
+        addr = rs1_val + bv_sign_extend(20, imm);
+        word_addr = addr[31:2];
+        word_ofs = addr[1:0];
+        // Shift word by appropriate offset
+        // Assumes little endianness (LSB is at byte 0 of word, MSB at byte 3)
+        shifted_data = bv_a_right_shift(bv_left_shift(3bv32, bv_zero_extend(30, word_ofs)), dmem[word_addr]);
+        case
+            (f3 == F3_LB) : { rd_val = bv_sign_extend(24, shifted_data[7:0]); }
+            (f3 == F3_LBU) : { rd_val = bv_zero_extend(24, shifted_data[7:0]); }
+            (f3 == F3_LH) : { rd_val = bv_sign_extend(16, shifted_data[15:0]); }
+            (f3 == F3_LHU) : { rd_val = bv_zero_extend(16, shifted_data[15:0]); }
+            (f3 == F3_LW) : { rd_val = shifted_data; }
+            // TODO handle invalid instructions
+            default : { rd_val = 0bv32; }
+        esac
+    }
+
+    procedure compute_s(f3: bv3, rs1_val : reg_data_t, imm : bv12, rs2_val : reg_data_t)
+        returns (mem_val : mem_data_t)
+    {
+        // Returns memory value shifted/masked appropriately
+        var addr : reg_data_t;
+        var word_addr : mem_word_addr_t;
+        var bit_ofs: bv32;
+        var old_word : mem_data_t;
+        addr = rs1_val + bv_sign_extend(20, imm);
+        word_addr = addr[31:2];
+        bit_ofs = bv_left_shift(3bv32, bv_zero_extend(30, addr[1:0]));
+        old_word = dmem[word_addr];
+        case
+            (f3 == F3_SB) : {
+                old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFbv32));
+                mem_val = old_word | bv_left_shift(bit_ofs, rs2_val & 0xFFbv32);
+            }
+            (f3 == F3_SH) : {
+                old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFFFbv32));
+                mem_val = old_word | bv_left_shift(bit_ofs, rs2_val & 0xFFFFbv32);
+            }
+            (f3 == F3_SW) : { mem_val = old_word | bv_left_shift(bit_ofs, rs2_val); }
+            default : { mem_val = old_word; }
+        esac
+    }
 
     procedure exec_inst()
         modifies pc, regfile, dmem;
     {
-        var opcode : bv7;
-        var i_imm : bv12;
-        var rs1 : bv5;
-        var rd : bv5;
-        var f3 : bv3;
-        opcode = inst[6:0];
+        var oc : bv7;
+        oc = opcode(inst);
         case
-            (opcode == OPCODE_I_ARITH) : {
-                i_imm = inst[31:20];
-                rs1 = inst[19:15];
-                rd = inst[11:7];
-                f3 = inst[14:12];
-                if (rd != 0bv5) {
-                    call (regfile[rd]) = compute_i_arith(f3, regfile[rs1], i_imm);
+            (oc == OPCODE_I_ARITH) : {
+                if (rd(inst) != x0) {
+                    call (regfile[rd(inst)]) = compute_i_arith(f3(inst), regfile[rs1(inst)], i_imm(inst));
                 }
                 pc = pc + 4bv32;
             } 
-            (opcode == OPCODE_I_MEM) : {
+            (oc == OPCODE_I_MEM) : {
+                if (rd(inst) != x0) {
+                    call (regfile[rd(inst)]) = compute_i_mem(f3(inst), regfile[rs1(inst)], i_imm(inst));
+                }
                 pc = pc + 4bv32;
             }
-            (opcode == OPCODE_R) : {
+            (oc == OPCODE_R) : {
                 pc = pc + 4bv32;
             }
-            (opcode == OPCODE_S) : {
+            (oc == OPCODE_S) : {
+                var word_addr : mem_word_addr_t;
+                word_addr = (regfile[rs1(inst)] + bv_sign_extend(20, s_imm(inst)))[31:2];
+                call (dmem[word_addr]) = compute_s(f3(inst), regfile[rs1(inst)], s_imm(inst), regfile[rs2(inst)]);
                 pc = pc + 4bv32;
             }
-            (opcode == OPCODE_B) : {
+            (oc == OPCODE_B) : {
             }
-            (opcode == OPCODE_U) : {
+            (oc == OPCODE_U) : {
 
                 pc = pc + 4bv32;
             }
-            (opcode == OPCODE_J) : {
+            (oc == OPCODE_J) : {
             }
         esac
     }
@@ -170,13 +176,18 @@ module sanity {
 
 module main {
     type * = common.*;
+    define * = instructions.*;
+    const * = instructions.*;
 
     var imem : mem_t;
 
     instance cpu_1 : cpu (imem : (imem));
     instance cpu_2 : cpu (imem : (imem));
 
-    init {}
+    init {
+        // Checks that only implemented instructions are generated
+        assume (forall (a : mem_word_addr_t) :: opcode(imem[a]) == OPCODE_I_MEM || opcode(imem[a]) == OPCODE_I_ARITH || opcode(imem[a]) == OPCODE_S);
+    }
 
     next {
         next (cpu_1);

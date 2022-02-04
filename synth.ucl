@@ -1,40 +1,10 @@
-module common {
-    type inst_t             = bv32;
-    type pc_t               = bv32;
-    type mem_word_addr_t    = bv30;
-    type mem_data_t         = bv32; // for simplicity, memory is word-addressed
-    type mem_t              = [mem_word_addr_t]mem_data_t;
-    type reg_data_t         = bv32;
-    type reg_addr_t         = bv5;
-    type regfile_t          = [reg_addr_t]reg_data_t;
-}
-
-module instructions {
-    type rtype_t = record { f7 : bv7, rs2: bv5, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
-    type itype_t = record { imm : bv12, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
-    type stype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
-    type btype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
-    type utype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
-    type jtype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
-
-    const OPCODE_I_MEM      : bv7 = 0b0000011bv7;
-    const OPCODE_I_ARITH    : bv7 = 0b0010011bv7;
-    const OPCODE_R          : bv7 = 0b0110011bv7;
-    const OPCODE_S          : bv7 = 0b0100011bv7;
-    const OPCODE_B          : bv7 = 0b1100011bv7;
-    const OPCODE_U          : bv7 = 0b0010111bv7;
-    const OPCODE_J          : bv7 = 0b1101111bv7;
-}
-
-module itype_arith {
-    type * = common.*;
-}
 
 // Very similar to cpu model in example 3.2 of tutorial
 // https://github.com/uclid-org/uclid/blob/master/tutorial/tutorial.pdf
 module main {
     type * = common.*;
     const * = instructions.*;
+    define * = instructions.*;
 
     input imem  : mem_t;
     var dmem    : mem_t;
@@ -42,25 +12,10 @@ module main {
     var pc      : pc_t;
     var inst    : inst_t;
 
-    define pc_to_mem_addr(pc : pc_t) : mem_word_addr_t = pc[31:2];
-    define i_imm(inst : inst_t) : bv12 = inst[11:0];
-    define rs2(inst : inst_t) : reg_addr_t = inst[24:20];
-    define rs1(inst : inst_t) : reg_addr_t = inst[19:15];
-    define rd(inst : inst_t) : reg_addr_t = inst[11:7];
-
-    const F3_ADDI   : bv3 = 0b000bv3;
-    const F3_SLLI   : bv3 = 0b001bv3;
-    const F3_SLTI   : bv3 = 0b010bv3;
-    const F3_SLTIU  : bv3 = 0b011bv3;
-    const F3_XORI   : bv3 = 0b100bv3;
-    const F3_SRI    : bv3 = 0b101bv3;
-    const F3_ORI    : bv3 = 0b110bv3;
-    const F3_ANDI   : bv3 = 0b111bv3;
-
-    synthesis function addi(rs1 : reg_addr_t, imm : bv12, regfile : regfile_t): reg_data_t;
+    synthesis function addi(rs1_val: reg_data_t, imm : bv12): reg_data_t;
     // invariant inv_addi_pc: addi(inst, state).pc == state.pc + 4bv32;
     invariant inv_addi_rd:
-        addi(rs1(inst), i_imm(inst), regfile) == regfile[rs1(inst)] + bv_sign_extend(20, i_imm(inst));
+        addi(regfile[rs1(inst)], i_imm(inst)) == regfile[rs1(inst)] + bv_sign_extend(20, i_imm(inst));
 
     procedure compute_i_arith(inst : inst_t)
         returns (rd_val : reg_data_t)
@@ -72,7 +27,7 @@ module main {
         imm_ext  = bv_sign_extend(20, i_imm(inst));
         shamt = i_imm(inst)[4:0];
         case
-            (f3 == F3_ADDI) : { rd_val = addi(rs1(inst), i_imm(inst), regfile); }
+            (f3 == F3_ADDI) : { rd_val = addi(regfile[rs1(inst)], i_imm(inst)); }
             // FIX: bv_left_shift seems not to type check until it reaches the smt backend
 /*
             (f3 == F3_SLLI) : { rd_val = bv_left_shift(imm_ext, rs1_val); }
