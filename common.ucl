@@ -16,20 +16,25 @@ module common {
 module instructions {
     type rtype_t = record { f7 : bv7, rs2: bv5, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
 
-    // FIX? uppercase enum names are not recognized as identifiers
-    type itype_arith_inst_t = enum { addi, slti, sltiu, xori, ori, andi };
-    type itype_shift_inst_t = enum { slli, srai, srli }; 
-    type itype_mem_inst_t   = enum { lb, lbu, lh, lhu, lw };
+    // FIX: in order to use enums in module, it must also be imported in main
+    type itype_arith_inst_t = enum { ADDI, SLTI, SLTIU, XORI, ORI, ANDI };
+    type itype_shift_inst_t = enum { SLLI, SRAI, SRLI }; 
+    type itype_mem_inst_t   = enum { LB, LBU, LH, LHU, LW };
     type itype_arith_t      = record { inst : itype_arith_inst_t, rd : bv5, rs1 : bv5, imm : bv12 };
     type itype_shift_t      = record { inst : itype_shift_inst_t, rd : bv5, rs1 : bv5, shamt : bv5 };
     type itype_mem_t        = record { inst : itype_mem_inst_t, rd : bv5, rs1 : bv5, imm : bv12 };
 
-    type stype_inst_t   = enum { sb, sh, sw };
-    type stype_t = record { inst : stype_inst_t, rs1 : bv5, rs2 : bv5, imm : bv12 };
+    type stype_inst_t       = enum { SB, SH, SW };
+    type stype_t            = record { inst : stype_inst_t, rs1 : bv5, rs2 : bv5, imm : bv12 };
 
     type btype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
     type utype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
     type jtype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
+
+    var s_save : stype_inst_t;
+    init {
+        s_save = SB;
+    }
 }
 
 module encdec {

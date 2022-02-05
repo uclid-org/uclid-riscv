@@ -4,15 +4,7 @@
 module cpu {
     type * = common.*;
     define * = common.*;
-    // type * = instructions.*;
-    type itype_arith_inst_t = instructions.itype_arith_inst_t;
-    type itype_shift_inst_t = instructions.itype_shift_inst_t;
-    type itype_mem_inst_t = instructions.itype_mem_inst_t;
-    type itype_arith_t = instructions.itype_arith_t;
-    type itype_shift_t = instructions.itype_shift_t;
-    type itype_mem_t = instructions.itype_mem_t;
-    type stype_inst_t = instructions.stype_inst_t;
-    type stype_t = instructions.stype_t;
+    type * = instructions.*;
     const * = instructions.*;
     define * = instructions.*;
     const * = encdec.*;
@@ -84,20 +76,20 @@ module cpu {
         modifies regfile, pc;
     {
         var imm_ext : reg_data_t;
-        var inst : itype_arith_inst_t;
+        var i : itype_arith_inst_t;
         var rs1_val : reg_data_t;
         var new_rd_val : reg_data_t;
         imm_ext = bv_sign_extend(20, args.imm);
-        inst = args.inst;
+        i = args.inst;
         rs1_val = regfile[args.rs1];
         case
-            (inst == addi) : { new_rd_val = rs1_val + imm_ext; }
+            (i == ADDI) : { new_rd_val = rs1_val + imm_ext; }
             // FIX: bv_left_shift seems not to type check until it reaches the smt backend
-            (inst == slti) : { new_rd_val = if (imm_ext > rs1_val) then 1bv32 else 0bv32; }
-            (inst == sltiu) : { new_rd_val = if (imm_ext >=_u rs1_val) then 1bv32 else 0bv32; }
-            (inst == xori) : { new_rd_val = rs1_val ^ imm_ext; }
-            (inst == ori) : { new_rd_val = rs1_val | imm_ext; }
-            (inst == andi) : { new_rd_val = rs1_val & imm_ext; }
+            (i == SLTI) : { new_rd_val = if (imm_ext > rs1_val) then 1bv32 else 0bv32; }
+            (i == SLTIU) : { new_rd_val = if (imm_ext >=_u rs1_val) then 1bv32 else 0bv32; }
+            (i == XORI) : { new_rd_val = rs1_val ^ imm_ext; }
+            (i == ORI) : { new_rd_val = rs1_val | imm_ext; }
+            (i == ANDI) : { new_rd_val = rs1_val & imm_ext; }
             // TODO handle invalid instructions (restrict w/ assumption?)
         esac
         call do_reg_write(args.rd, new_rd_val);
@@ -115,9 +107,9 @@ module cpu {
         inst = args.inst;
         rs1_val = regfile[args.rs1];
         case
-            (inst == slli) : { new_rd_val = bv_left_shift(shamt_padded, rs1_val); }
-            (inst == srai) : { new_rd_val = bv_a_right_shift(shamt_padded, rs1_val); }
-            (inst == srli) : { new_rd_val = bv_l_right_shift(shamt_padded, rs1_val); }
+            (inst == SLLI) : { new_rd_val = bv_left_shift(shamt_padded, rs1_val); }
+            (inst == SRAI) : { new_rd_val = bv_a_right_shift(shamt_padded, rs1_val); }
+            (inst == SRLI) : { new_rd_val = bv_l_right_shift(shamt_padded, rs1_val); }
         esac
         call do_reg_write(args.rd, new_rd_val);
         pc = pc + 4bv32;
@@ -132,11 +124,11 @@ module cpu {
         addr = regfile[args.rs1] + bv_sign_extend(20, args.imm);
         inst = args.inst;
         case
-            (inst == lb) : { call (new_rd_val) = do_mem_read(addr, BYTE, true); }
-            (inst == lbu) : { call (new_rd_val) = do_mem_read(addr, BYTE, false); }
-            (inst == lh) : { call (new_rd_val) = do_mem_read(addr, HALF, true); }
-            (inst == lhu) : { call (new_rd_val) = do_mem_read(addr, HALF, false); }
-            (inst == lw) : { call (new_rd_val) = do_mem_read(addr, WORD, true); }
+            (inst == LB) : { call (new_rd_val) = do_mem_read(addr, BYTE, true); }
+            (inst == LBU) : { call (new_rd_val) = do_mem_read(addr, BYTE, false); }
+            (inst == LH) : { call (new_rd_val) = do_mem_read(addr, HALF, true); }
+            (inst == LHU) : { call (new_rd_val) = do_mem_read(addr, HALF, false); }
+            (inst == LW) : { call (new_rd_val) = do_mem_read(addr, WORD, true); }
         esac
         call do_reg_write(args.rd, new_rd_val);
         pc = pc + 4bv32;
@@ -147,13 +139,13 @@ module cpu {
     {
         // Returns memory value shifted/masked appropriately
         var addr : reg_data_t;
-        var inst : stype_inst_t;
+        var i : stype_inst_t;
         addr = regfile[args.rs1] + bv_sign_extend(20, args.imm);
-        inst = args.inst;
+        i = args.inst;
         case
-            (inst == sb) : { call do_mem_write(addr, BYTE, regfile[args.rs2]); }
-            (inst == sh) : { call do_mem_write(addr, HALF, regfile[args.rs2]); }
-            (inst == sw) : { call do_mem_write(addr, WORD, regfile[args.rs2]); }
+            (i == SB) : { call do_mem_write(addr, BYTE, regfile[args.rs2]); }
+            (i == SH) : { call do_mem_write(addr, HALF, regfile[args.rs2]); }
+            (i == SW) : { call do_mem_write(addr, WORD, regfile[args.rs2]); }
         esac
         pc = pc + 4bv32;
     }
@@ -183,6 +175,7 @@ module cpu {
         i_imm = get_i_imm(inst);
         s_imm = get_s_imm(inst);
         case
+/*
             (oc == OPCODE_I_ARITH) : {
                 if (f3 == F3_SLLI || f3 == F3_SRI) {
                     var args : itype_shift_t;
@@ -228,17 +221,16 @@ module cpu {
             (oc == OPCODE_R) : {
                 pc = pc + 4bv32;
             }
+*/
             (oc == OPCODE_S) : {
                 var args : stype_t;
-                args.rs1 = rs1;
-                args.rs2 = rs2;
-                args.imm = s_imm;
                 case
-                    (f3 == F3_SB) : { args.inst = sb; }
-                    (f3 == F3_SH) : { args.inst = sh; }
-                    (f3 == F3_SW) : { args.inst = sw; }
+                    (f3 == F3_SB) : { s_inst = SB; }
+                    (f3 == F3_SH) : { s_inst = SH; }
+                    (f3 == F3_SW) : { s_inst = SW; }
                 esac
-                call exec_s(args);
+                args = { s_inst, rs1, rs2, s_imm };
+//                call exec_s(args);
             }
             (oc == OPCODE_B) : {
             }
@@ -295,6 +287,7 @@ module sanity {
 
 module main {
     type * = common.*;
+    type * = instructions.*;
     define * = instructions.*;
     const * = instructions.*;
     const * = encdec.*;
