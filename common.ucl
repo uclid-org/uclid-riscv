@@ -8,18 +8,33 @@ module common {
     type reg_addr_t         = bv5;
     type regfile_t          = [reg_addr_t]reg_data_t;
 
+    type mem_data_width_t   = enum { BYTE, HALF, WORD, DWORD };
+
     define pc_to_mem_addr(pc : pc_t) : mem_word_addr_t = pc[31:2];
 }
 
 module instructions {
-    type * = common.*;
-
     type rtype_t = record { f7 : bv7, rs2: bv5, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
-    type itype_t = record { imm : bv12, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
-    type stype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
+
+    // FIX? uppercase enum names are not recognized as identifiers
+    type itype_arith_inst_t = enum { addi, slti, sltiu, xori, ori, andi };
+    type itype_shift_inst_t = enum { slli, srai, srli }; 
+    type itype_mem_inst_t   = enum { lb, lbu, lh, lhu, lw };
+    type itype_arith_t      = record { inst : itype_arith_inst_t, rd : bv5, rs1 : bv5, imm : bv12 };
+    type itype_shift_t      = record { inst : itype_shift_inst_t, rd : bv5, rs1 : bv5, shamt : bv5 };
+    type itype_mem_t        = record { inst : itype_mem_inst_t, rd : bv5, rs1 : bv5, imm : bv12 };
+
+    type stype_inst_t   = enum { sb, sh, sw };
+    type stype_t = record { inst : stype_inst_t, rs1 : bv5, rs2 : bv5, imm : bv12 };
+
     type btype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
     type utype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
     type jtype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
+}
+
+module encdec {
+    type * = common.*;
+    type * = instructions.*;
 
     const OPCODE_I_MEM      : bv7 = 0b0000011bv7;
     const OPCODE_I_ARITH    : bv7 = 0b0010011bv7;
@@ -29,13 +44,14 @@ module instructions {
     const OPCODE_U          : bv7 = 0b0010111bv7;
     const OPCODE_J          : bv7 = 0b1101111bv7;
 
-    define opcode(inst: inst_t) : bv7 = inst[6:0];
-    define i_imm(inst : inst_t) : bv12 = inst[31:20];
-    define s_imm(inst: inst_t) : bv12 = inst[31:25] ++ inst[11:7];
-    define rs2(inst : inst_t) : reg_addr_t = inst[24:20];
-    define rs1(inst : inst_t) : reg_addr_t = inst[19:15];
-    define rd(inst : inst_t) : reg_addr_t = inst[11:7];
-    define f3(inst : inst_t) : bv3 = inst[14:12];
+    define get_opcode(inst: inst_t) : bv7 = inst[6:0];
+    define get_i_imm(inst : inst_t) : bv12 = inst[31:20];
+    define get_s_imm(inst: inst_t) : bv12 = inst[31:25] ++ inst[11:7];
+    define get_rs2(inst : inst_t) : reg_addr_t = inst[24:20];
+    define get_rs1(inst : inst_t) : reg_addr_t = inst[19:15];
+    define get_rd(inst : inst_t) : reg_addr_t = inst[11:7];
+    define get_f3(inst : inst_t) : bv3 = inst[14:12];
+    define get_f7(inst : inst_t) : bv7 = inst[31:25];
 
     const F3_ADDI   : bv3 = 0b000bv3;
     const F3_SLLI   : bv3 = 0b001bv3;
@@ -57,7 +73,4 @@ module instructions {
     const F3_SW     : bv3 = 0b010bv3;
 
     const x0        : bv5 = 0bv5;
-}
-module itype_arith {
-    type * = common.*;
 }

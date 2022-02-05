@@ -4,8 +4,19 @@
 module cpu {
     type * = common.*;
     define * = common.*;
+    // type * = instructions.*;
+    type itype_arith_inst_t = instructions.itype_arith_inst_t;
+    type itype_shift_inst_t = instructions.itype_shift_inst_t;
+    type itype_mem_inst_t = instructions.itype_mem_inst_t;
+    type itype_arith_t = instructions.itype_arith_t;
+    type itype_shift_t = instructions.itype_shift_t;
+    type itype_mem_t = instructions.itype_mem_t;
+    type stype_inst_t = instructions.stype_inst_t;
+    type stype_t = instructions.stype_t;
     const * = instructions.*;
     define * = instructions.*;
+    const * = encdec.*;
+    define * = encdec.*;
 
     input imem  : mem_t;
     var dmem    : mem_t;
@@ -13,117 +24,225 @@ module cpu {
     var pc      : pc_t;
     var inst    : inst_t;
 
-    procedure compute_i_arith(f3 : bv3, rs1_val : reg_data_t, imm : bv12)
-        returns (rd_val : reg_data_t)
+    // ===== BEGIN STATE HELPER FUNCTIONS =====
+    procedure do_reg_write(rd : reg_addr_t, value : reg_data_t)
+        modifies regfile;
     {
-        var imm_ext : reg_data_t;
-        var shamt : bv32;
-        imm_ext  = bv_sign_extend(20, imm);
-        shamt = bv_zero_extend(27, imm[4:0]);
-        case
-            (f3 == F3_ADDI) : { rd_val = rs1_val + imm_ext; }
-            // FIX: bv_left_shift seems not to type check until it reaches the smt backend
-            (f3 == F3_SLLI) : { rd_val = bv_left_shift(shamt, rs1_val); }
-            (f3 == F3_SLTI) : { if (imm_ext > rs1_val) { rd_val = 1bv32; } else { rd_val = 0bv32; } }
-            // TODO check how to do unsigned vs signed comparisons
-            (f3 == F3_SLTIU) : { if (imm_ext > rs1_val) { rd_val = 1bv32; } else { rd_val = 0bv32; } }
-            (f3 == F3_XORI) : { rd_val = rs1_val ^ imm_ext; }
-            (f3 == F3_SRI) : {
-                if (imm[10:10] == 0bv1) {
-                    // TODO double check behavior for upper immediate bits
-                    rd_val = bv_a_right_shift(shamt, rs1_val);
-                } else {
-                    rd_val = bv_l_right_shift(shamt, rs1_val);
-                }
-            }
-            (f3 == F3_ORI) : { rd_val = rs1_val | imm_ext; }
-            (f3 == F3_ANDI) : { rd_val = rs1_val & imm_ext; }
-            // TODO handle invalid instructions (restrict w/ assumption?)
-            default : { rd_val = 0bv32; }
-        esac
+        if (rd != x0) {
+            regfile[rd] = value;
+        }
     }
 
-    procedure compute_i_mem(f3: bv3, rs1_val : reg_data_t, imm : bv12)
-        returns (rd_val : reg_data_t)
+    procedure do_mem_read(addr : reg_data_t, width : mem_data_width_t, sext : boolean)
+        returns (new_rd_val : reg_data_t)
     {
-        var addr : reg_data_t;
         var word_addr : mem_word_addr_t;
         var word_ofs : bv2;
         var shifted_data : mem_data_t;
-        addr = rs1_val + bv_sign_extend(20, imm);
         word_addr = addr[31:2];
         word_ofs = addr[1:0];
         // Shift word by appropriate offset
         // Assumes little endianness (LSB is at byte 0 of word, MSB at byte 3)
         shifted_data = bv_a_right_shift(bv_left_shift(3bv32, bv_zero_extend(30, word_ofs)), dmem[word_addr]);
+        // TODO deal with alignment checks
         case
-            (f3 == F3_LB) : { rd_val = bv_sign_extend(24, shifted_data[7:0]); }
-            (f3 == F3_LBU) : { rd_val = bv_zero_extend(24, shifted_data[7:0]); }
-            (f3 == F3_LH) : { rd_val = bv_sign_extend(16, shifted_data[15:0]); }
-            (f3 == F3_LHU) : { rd_val = bv_zero_extend(16, shifted_data[15:0]); }
-            (f3 == F3_LW) : { rd_val = shifted_data; }
-            // TODO handle invalid instructions
-            default : { rd_val = 0bv32; }
+            (width == BYTE) : { new_rd_val = if (sext) then bv_sign_extend(24, shifted_data[7:0]) else bv_zero_extend(24, shifted_data[7:0]); }
+            (width == HALF) : { new_rd_val = if (sext) then bv_sign_extend(16, shifted_data[15:0]) else bv_zero_extend(16, shifted_data[15:0]); }
+            (width == WORD) : { new_rd_val = shifted_data; }
         esac
     }
 
-    procedure compute_s(f3: bv3, rs1_val : reg_data_t, imm : bv12, rs2_val : reg_data_t)
-        returns (mem_val : mem_data_t)
+    procedure do_mem_write(addr : reg_data_t, width : mem_data_width_t, value : reg_data_t)
+        modifies dmem;
     {
-        // Returns memory value shifted/masked appropriately
-        var addr : reg_data_t;
+        // TODO handle alignment
         var word_addr : mem_word_addr_t;
         var bit_ofs: bv32;
         var old_word : mem_data_t;
-        addr = rs1_val + bv_sign_extend(20, imm);
+        var new_mem_data : mem_data_t;
         word_addr = addr[31:2];
         bit_ofs = bv_left_shift(3bv32, bv_zero_extend(30, addr[1:0]));
         old_word = dmem[word_addr];
         case
-            (f3 == F3_SB) : {
+            (width == BYTE) : {
                 old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFbv32));
-                mem_val = old_word | bv_left_shift(bit_ofs, rs2_val & 0xFFbv32);
+                new_mem_data = old_word | bv_left_shift(bit_ofs, value & 0xFFbv32);
             }
-            (f3 == F3_SH) : {
+            (width == HALF) : {
                 old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFFFbv32));
-                mem_val = old_word | bv_left_shift(bit_ofs, rs2_val & 0xFFFFbv32);
+                new_mem_data = old_word | bv_left_shift(bit_ofs, value & 0xFFFFbv32);
             }
-            (f3 == F3_SW) : { mem_val = old_word | bv_left_shift(bit_ofs, rs2_val); }
-            default : { mem_val = old_word; }
+            (width == WORD) : { new_mem_data = old_word | bv_left_shift(bit_ofs, value); }
         esac
+        dmem[word_addr] = new_mem_data;
     }
 
-    procedure exec_inst()
+    // ===== END STATE HELPER FUNCTIONS =====
+
+    // ===== BEGIN INSTRUCTION EXECUTE FUNCTIONS =====
+    procedure exec_i_arith(args : itype_arith_t)
+        modifies regfile, pc;
+    {
+        var imm_ext : reg_data_t;
+        var inst : itype_arith_inst_t;
+        var rs1_val : reg_data_t;
+        var new_rd_val : reg_data_t;
+        imm_ext = bv_sign_extend(20, args.imm);
+        inst = args.inst;
+        rs1_val = regfile[args.rs1];
+        case
+            (inst == addi) : { new_rd_val = rs1_val + imm_ext; }
+            // FIX: bv_left_shift seems not to type check until it reaches the smt backend
+            (inst == slti) : { new_rd_val = if (imm_ext > rs1_val) then 1bv32 else 0bv32; }
+            (inst == sltiu) : { new_rd_val = if (imm_ext >=_u rs1_val) then 1bv32 else 0bv32; }
+            (inst == xori) : { new_rd_val = rs1_val ^ imm_ext; }
+            (inst == ori) : { new_rd_val = rs1_val | imm_ext; }
+            (inst == andi) : { new_rd_val = rs1_val & imm_ext; }
+            // TODO handle invalid instructions (restrict w/ assumption?)
+        esac
+        call do_reg_write(args.rd, new_rd_val);
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_i_shift(args : itype_shift_t)
+        modifies regfile, pc;
+    {
+        var shamt_padded : reg_data_t;
+        var inst : itype_shift_inst_t;
+        var rs1_val : reg_data_t;
+        var new_rd_val : reg_data_t;
+        shamt_padded = bv_zero_extend(27, args.shamt);
+        inst = args.inst;
+        rs1_val = regfile[args.rs1];
+        case
+            (inst == slli) : { new_rd_val = bv_left_shift(shamt_padded, rs1_val); }
+            (inst == srai) : { new_rd_val = bv_a_right_shift(shamt_padded, rs1_val); }
+            (inst == srli) : { new_rd_val = bv_l_right_shift(shamt_padded, rs1_val); }
+        esac
+        call do_reg_write(args.rd, new_rd_val);
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_i_mem(args : itype_mem_t)
+        modifies regfile, pc;
+    {
+        var addr : reg_data_t;
+        var inst : itype_mem_inst_t;
+        var new_rd_val : reg_data_t;
+        addr = regfile[args.rs1] + bv_sign_extend(20, args.imm);
+        inst = args.inst;
+        case
+            (inst == lb) : { call (new_rd_val) = do_mem_read(addr, BYTE, true); }
+            (inst == lbu) : { call (new_rd_val) = do_mem_read(addr, BYTE, false); }
+            (inst == lh) : { call (new_rd_val) = do_mem_read(addr, HALF, true); }
+            (inst == lhu) : { call (new_rd_val) = do_mem_read(addr, HALF, false); }
+            (inst == lw) : { call (new_rd_val) = do_mem_read(addr, WORD, true); }
+        esac
+        call do_reg_write(args.rd, new_rd_val);
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_s(args : stype_t)
+        modifies dmem, pc;
+    {
+        // Returns memory value shifted/masked appropriately
+        var addr : reg_data_t;
+        var inst : stype_inst_t;
+        addr = regfile[args.rs1] + bv_sign_extend(20, args.imm);
+        inst = args.inst;
+        case
+            (inst == sb) : { call do_mem_write(addr, BYTE, regfile[args.rs2]); }
+            (inst == sh) : { call do_mem_write(addr, HALF, regfile[args.rs2]); }
+            (inst == sw) : { call do_mem_write(addr, WORD, regfile[args.rs2]); }
+        esac
+        pc = pc + 4bv32;
+    }
+    // ===== END INSTRUCTION EXECUTE FUNCTIONS =====
+
+    // Decodes and executes an instruction from IMEM
+    procedure exec_next_inst()
         modifies pc, regfile, dmem;
     {
         var oc : bv7;
-        oc = opcode(inst);
+        var rs1 : bv5;
+        var rs2 : bv5;
+        var rd : bv5;
+        var f3 : bv3;
+        var f7 : bv7;
+        var i_imm : bv12;
+        var s_imm : bv12;
+        var i_shift_inst : itype_shift_inst_t;
+        var i_mem_inst : itype_mem_inst_t;
+        var s_inst : stype_inst_t;
+        oc = get_opcode(inst);
+        rs1 = get_rs1(inst);
+        rs2 = get_rs2(inst);
+        rd = get_rd(inst);
+        f3 = get_f3(inst);
+        f7 = get_f7(inst);
+        i_imm = get_i_imm(inst);
+        s_imm = get_s_imm(inst);
         case
             (oc == OPCODE_I_ARITH) : {
-                if (rd(inst) != x0) {
-                    call (regfile[rd(inst)]) = compute_i_arith(f3(inst), regfile[rs1(inst)], i_imm(inst));
+                if (f3 == F3_SLLI || f3 == F3_SRI) {
+                    var args : itype_shift_t;
+                    args.rs1 = rs1;
+                    args.rd = rd;
+                    args.shamt = i_imm[4:0];
+                    case
+                        (f3 == F3_SLLI) : { args.inst = slli; }
+                        (f7[5:5] == 0bv1) : { args.inst = srli; }
+                        (f7[5:5] == 1bv1) : { args.inst = srai; }
+                    esac
+                    call exec_i_shift(args);
+                } else {
+                    var args : itype_arith_t;
+                    args.rs1 = rs1;
+                    args.rd = rd;
+                    args.imm = i_imm;
+                    case
+                        (f3 == F3_ADDI) : { args.inst = addi; }
+                        (f3 == F3_SLTI) : { args.inst = slti; }
+                        (f3 == F3_SLTIU) : { args.inst = sltiu; }
+                        (f3 == F3_XORI) : { args.inst = xori; }
+                        (f3 == F3_ORI) : { args.inst = ori; }
+                        (f3 == F3_ANDI) : { args.inst = andi; }
+                    esac
+                    call exec_i_arith(args);
                 }
-                pc = pc + 4bv32;
             } 
             (oc == OPCODE_I_MEM) : {
-                if (rd(inst) != x0) {
-                    call (regfile[rd(inst)]) = compute_i_mem(f3(inst), regfile[rs1(inst)], i_imm(inst));
-                }
-                pc = pc + 4bv32;
+                var args : itype_mem_t;
+                args.rd = rd;
+                args.rs1 = rs1;
+                args.imm = i_imm;
+                case
+                    (f3 == F3_LB) : { args.inst = lb; }
+                    (f3 == F3_LBU) : { args.inst = lbu; }
+                    (f3 == F3_LH) : { args.inst = lh; }
+                    (f3 == F3_LHU) : { args.inst = lhu; }
+                    (f3 == F3_LW) : { args.inst = lw; }
+                esac
+                call exec_i_mem(args);
             }
             (oc == OPCODE_R) : {
                 pc = pc + 4bv32;
             }
             (oc == OPCODE_S) : {
-                var word_addr : mem_word_addr_t;
-                word_addr = (regfile[rs1(inst)] + bv_sign_extend(20, s_imm(inst)))[31:2];
-                call (dmem[word_addr]) = compute_s(f3(inst), regfile[rs1(inst)], s_imm(inst), regfile[rs2(inst)]);
-                pc = pc + 4bv32;
+                var args : stype_t;
+                args.rs1 = rs1;
+                args.rs2 = rs2;
+                args.imm = s_imm;
+                case
+                    (f3 == F3_SB) : { args.inst = sb; }
+                    (f3 == F3_SH) : { args.inst = sh; }
+                    (f3 == F3_SW) : { args.inst = sw; }
+                esac
+                call exec_s(args);
             }
             (oc == OPCODE_B) : {
             }
             (oc == OPCODE_U) : {
-
                 pc = pc + 4bv32;
             }
             (oc == OPCODE_J) : {
@@ -140,7 +259,7 @@ module cpu {
 
     next {
         inst' = imem[pc_to_mem_addr(pc)];
-        call exec_inst();
+        call exec_next_inst();
     }
 }
 
@@ -178,6 +297,8 @@ module main {
     type * = common.*;
     define * = instructions.*;
     const * = instructions.*;
+    const * = encdec.*;
+    define * = encdec.*;
 
     var imem : mem_t;
 
@@ -186,7 +307,7 @@ module main {
 
     init {
         // Checks that only implemented instructions are generated
-        assume (forall (a : mem_word_addr_t) :: opcode(imem[a]) == OPCODE_I_MEM || opcode(imem[a]) == OPCODE_I_ARITH || opcode(imem[a]) == OPCODE_S);
+        assume (forall (a : mem_word_addr_t) :: get_opcode(imem[a]) == OPCODE_I_MEM || get_opcode(imem[a]) == OPCODE_I_ARITH || get_opcode(imem[a]) == OPCODE_S);
     }
 
     next {
