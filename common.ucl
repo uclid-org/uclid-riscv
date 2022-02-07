@@ -14,9 +14,10 @@ module common {
 }
 
 module instructions {
-    type rtype_t = record { f7 : bv7, rs2: bv5, rs1 : bv5, f3: bv3, rd: bv5, opcode: bv7 };
+    // FIX: in order to use enums variants in module, the type must also be imported in main
+    type rtype_inst_t       = enum { ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND };
+    type rtype_t            = record { inst : rtype_inst_t, rd : bv5, rs1 : bv5, rs2 : bv5 };
 
-    // FIX: in order to use enums in module, it must also be imported in main
     type itype_arith_inst_t = enum { ADDI, SLTI, SLTIU, XORI, ORI, ANDI };
     type itype_shift_inst_t = enum { SLLI, SRAI, SRLI }; 
     type itype_mem_inst_t   = enum { LB, LBU, LH, LHU, LW };
@@ -27,36 +28,53 @@ module instructions {
     type stype_inst_t       = enum { SB, SH, SW };
     type stype_t            = record { inst : stype_inst_t, rs1 : bv5, rs2 : bv5, imm : bv12 };
 
-    type btype_t = record { imm_u : bv12, rs2 : bv5, f3: bv3, imm_l: bv5, opcode: bv7 };
-    type utype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
-    type jtype_t = record { imm : bv20, rd: bv5, opcode: bv7 };
+    type btype_inst_t       = enum { BEQ, BNE, BLT, BGE, BLTU, BGEU };
+    type btype_t            = record { inst : btype_inst_t, rs1 : bv5, rs2 : bv5, imm : bv13 };
 
-    var s_save : stype_inst_t;
-    init {
-        s_save = SB;
-    }
+    type utype_inst_t       = enum { AUIPC, LUI };
+    type utype_t            = record { inst : utype_inst_t, rd : bv5, imm : bv32 };
+
+    type jal_t              = record { rd : bv5, imm : bv21 };
+    type jalr_t             = record { rd : bv5, rs1 : bv5, imm : bv12 };
 }
 
 module encdec {
     type * = common.*;
     type * = instructions.*;
 
-    const OPCODE_I_MEM      : bv7 = 0b0000011bv7;
-    const OPCODE_I_ARITH    : bv7 = 0b0010011bv7;
-    const OPCODE_R          : bv7 = 0b0110011bv7;
-    const OPCODE_S          : bv7 = 0b0100011bv7;
-    const OPCODE_B          : bv7 = 0b1100011bv7;
-    const OPCODE_U          : bv7 = 0b0010111bv7;
-    const OPCODE_J          : bv7 = 0b1101111bv7;
+    const x0 : bv5 = 0bv5;
 
     define get_opcode(inst: inst_t) : bv7 = inst[6:0];
     define get_i_imm(inst : inst_t) : bv12 = inst[31:20];
-    define get_s_imm(inst: inst_t) : bv12 = inst[31:25] ++ inst[11:7];
+    define get_s_imm(inst : inst_t) : bv12 = inst[31:25] ++ inst[11:7];
+    define get_b_imm(inst : inst_t) : bv13 = inst[31:31] ++ inst[7:7] ++ inst[30:25] ++ inst[11:8] ++ 0bv1;
+    define get_u_imm(inst : inst_t) : bv32 = inst[31:12] ++ 0bv12;
+    define get_j_imm(inst : inst_t) : bv21 = inst[31:31] ++ inst[19:12] ++ inst[20:20] ++ inst[30:21] ++ 0bv1;
     define get_rs2(inst : inst_t) : reg_addr_t = inst[24:20];
     define get_rs1(inst : inst_t) : reg_addr_t = inst[19:15];
     define get_rd(inst : inst_t) : reg_addr_t = inst[11:7];
     define get_f3(inst : inst_t) : bv3 = inst[14:12];
     define get_f7(inst : inst_t) : bv7 = inst[31:25];
+
+    const OPCODE_I_MEM      : bv7 = 0b0000011bv7;
+    const OPCODE_I_ARITH    : bv7 = 0b0010011bv7;
+    const OPCODE_R          : bv7 = 0b0110011bv7;
+    const OPCODE_S          : bv7 = 0b0100011bv7;
+    const OPCODE_B          : bv7 = 0b1100011bv7;
+    const OPCODE_AUIPC      : bv7 = 0b0010111bv7;
+    const OPCODE_LUI        : bv7 = 0b0110111bv7;
+    const OPCODE_JAL        : bv7 = 0b1101111bv7;
+    const OPCODE_JALR       : bv7 = 0b1100111bv7;
+
+    // ===== BEGIN FUNCT3 DEFINITIONS =====
+    const F3_ADD    : bv3 = 0b000bv3;
+    const F3_SLL    : bv3 = 0b001bv3;
+    const F3_SLT    : bv3 = 0b010bv3;
+    const F3_SLTU   : bv3 = 0b011bv3;
+    const F3_XOR    : bv3 = 0b100bv3;
+    const F3_SR     : bv3 = 0b101bv3;
+    const F3_OR     : bv3 = 0b110bv3;
+    const F3_AND    : bv3 = 0b111bv3;
 
     const F3_ADDI   : bv3 = 0b000bv3;
     const F3_SLLI   : bv3 = 0b001bv3;
@@ -73,9 +91,16 @@ module encdec {
     const F3_LBU    : bv3 = 0b100bv3;
     const F3_LHU    : bv3 = 0b101bv3;
     // const F3_LWU    : bv3 = 0b111bv3;
+
     const F3_SB     : bv3 = 0b000bv3;
     const F3_SH     : bv3 = 0b001bv3;
     const F3_SW     : bv3 = 0b010bv3;
 
-    const x0        : bv5 = 0bv5;
+    const F3_BEQ    : bv3 = 0b000bv3;
+    const F3_BNE    : bv3 = 0b001bv3;
+    const F3_BLT    : bv3 = 0b100bv3;    
+    const F3_BGE    : bv3 = 0b101bv3;    
+    const F3_BLTU   : bv3 = 0b110bv3;    
+    const F3_BGEU   : bv3 = 0b111bv3;    
+    // ===== END FUNCT3 DEFINITIONS =====
 }

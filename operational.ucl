@@ -100,16 +100,16 @@ module cpu {
         modifies regfile, pc;
     {
         var shamt_padded : reg_data_t;
-        var inst : itype_shift_inst_t;
+        var i : itype_shift_inst_t;
         var rs1_val : reg_data_t;
         var new_rd_val : reg_data_t;
         shamt_padded = bv_zero_extend(27, args.shamt);
-        inst = args.inst;
+        i = args.inst;
         rs1_val = regfile[args.rs1];
         case
-            (inst == SLLI) : { new_rd_val = bv_left_shift(shamt_padded, rs1_val); }
-            (inst == SRAI) : { new_rd_val = bv_a_right_shift(shamt_padded, rs1_val); }
-            (inst == SRLI) : { new_rd_val = bv_l_right_shift(shamt_padded, rs1_val); }
+            (i == SLLI) : { new_rd_val = bv_left_shift(shamt_padded, rs1_val); }
+            (i == SRAI) : { new_rd_val = bv_a_right_shift(shamt_padded, rs1_val); }
+            (i == SRLI) : { new_rd_val = bv_l_right_shift(shamt_padded, rs1_val); }
         esac
         call do_reg_write(args.rd, new_rd_val);
         pc = pc + 4bv32;
@@ -119,16 +119,16 @@ module cpu {
         modifies regfile, pc;
     {
         var addr : reg_data_t;
-        var inst : itype_mem_inst_t;
+        var i : itype_mem_inst_t;
         var new_rd_val : reg_data_t;
         addr = regfile[args.rs1] + bv_sign_extend(20, args.imm);
-        inst = args.inst;
+        i = args.inst;
         case
-            (inst == LB) : { call (new_rd_val) = do_mem_read(addr, BYTE, true); }
-            (inst == LBU) : { call (new_rd_val) = do_mem_read(addr, BYTE, false); }
-            (inst == LH) : { call (new_rd_val) = do_mem_read(addr, HALF, true); }
-            (inst == LHU) : { call (new_rd_val) = do_mem_read(addr, HALF, false); }
-            (inst == LW) : { call (new_rd_val) = do_mem_read(addr, WORD, true); }
+            (i == LB) : { call (new_rd_val) = do_mem_read(addr, BYTE, true); }
+            (i == LBU) : { call (new_rd_val) = do_mem_read(addr, BYTE, false); }
+            (i == LH) : { call (new_rd_val) = do_mem_read(addr, HALF, true); }
+            (i == LHU) : { call (new_rd_val) = do_mem_read(addr, HALF, false); }
+            (i == LW) : { call (new_rd_val) = do_mem_read(addr, WORD, true); }
         esac
         call do_reg_write(args.rd, new_rd_val);
         pc = pc + 4bv32;
@@ -149,6 +149,82 @@ module cpu {
         esac
         pc = pc + 4bv32;
     }
+
+    procedure exec_r(args : rtype_t)
+        modifies regfile, pc;
+    {
+        var i : rtype_inst_t;        
+        var new_rd_val : reg_data_t;
+        var rs1_val : reg_data_t;
+        var rs2_val : reg_data_t;
+        i = args.inst;
+        rs1_val = regfile[args.rs1];
+        rs2_val = regfile[args.rs2];
+        case
+            (i == ADD) : { new_rd_val = rs1_val + rs2_val; }
+            (i == SUB) : { new_rd_val = rs1_val - rs2_val; }
+            (i == SLL) : { new_rd_val = bv_left_shift(rs2_val, rs1_val); }
+            (i == SLT) : { new_rd_val = if (rs2_val > rs1_val) then 1bv32 else 0bv32; }
+            (i == SLTU) : { new_rd_val = if (rs2_val >=_u rs1_val) then 1bv32 else 0bv32; }
+            (i == XOR) : { new_rd_val = rs1_val ^ rs2_val; }
+            (i == SRL) : { new_rd_val = bv_l_right_shift(rs2_val, rs1_val); }
+            (i == SRA) : { new_rd_val = bv_a_right_shift(rs2_val, rs1_val); }
+            (i == OR) : { new_rd_val = rs1_val | rs2_val; }
+            (i == AND) : { new_rd_val = rs1_val & rs2_val; }
+        esac
+        call do_reg_write(args.rd, new_rd_val);
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_b(args : btype_t)
+        modifies pc;
+    {
+        var i : btype_inst_t;
+        var b_tgt : pc_t;
+        var taken : boolean;
+        var rs1_val : reg_data_t;
+        var rs2_val : reg_data_t;
+        i = args.inst;
+        rs1_val = regfile[args.rs1];
+        rs2_val = regfile[args.rs2];
+        b_tgt = pc + bv_sign_extend(19, args.imm);
+        case
+            (i == BEQ) : { taken = rs1_val == rs2_val; }
+            (i == BNE) : { taken = rs1_val != rs2_val; }
+            (i == BLT) : { taken = rs1_val < rs2_val; }
+            (i == BGE) : { taken = rs1_val >= rs2_val; }
+            (i == BLTU) : { taken = rs1_val <_u rs2_val; }
+            (i == BGEU) : { taken = rs1_val >=_u rs2_val; }
+        esac
+        pc = if (taken) then b_tgt else pc + 4bv32;
+    }
+
+    procedure exec_u(args : utype_t)
+        modifies regfile, pc;
+    {
+        var i : utype_inst_t;
+        var new_rd_val : reg_data_t;
+        i = args.inst;
+        case
+            (i == AUIPC) : { new_rd_val = pc + args.imm; }
+            (i == LUI) : { new_rd_val = args.imm; }
+        esac
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_jal(args : jal_t)
+        modifies regfile, pc;
+    {
+        call do_reg_write(args.rd, pc + 4bv32);
+        pc = pc + bv_sign_extend(11, args.imm);
+    }
+
+    procedure exec_jalr(args : jalr_t)
+        modifies regfile, pc;
+    {
+        call do_reg_write(args.rd, pc + 4bv32);
+        pc = regfile[args.rs1] + bv_sign_extend(20, args.imm);
+    }
     // ===== END INSTRUCTION EXECUTE FUNCTIONS =====
 
     // Decodes and executes an instruction from IMEM
@@ -162,7 +238,6 @@ module cpu {
         var f3 : bv3;
         var f7 : bv7;
         var i_imm : bv12;
-        var s_imm : bv12;
         var i_shift_inst : itype_shift_inst_t;
         var i_mem_inst : itype_mem_inst_t;
         var s_inst : stype_inst_t;
@@ -173,9 +248,7 @@ module cpu {
         f3 = get_f3(inst);
         f7 = get_f7(inst);
         i_imm = get_i_imm(inst);
-        s_imm = get_s_imm(inst);
         case
-/*
             (oc == OPCODE_I_ARITH) : {
                 if (f3 == F3_SLLI || f3 == F3_SRI) {
                     var args : itype_shift_t;
@@ -183,9 +256,9 @@ module cpu {
                     args.rd = rd;
                     args.shamt = i_imm[4:0];
                     case
-                        (f3 == F3_SLLI) : { args.inst = slli; }
-                        (f7[5:5] == 0bv1) : { args.inst = srli; }
-                        (f7[5:5] == 1bv1) : { args.inst = srai; }
+                        (f3 == F3_SLLI) : { args.inst = SLLI; }
+                        (f7[5:5] == 0bv1) : { args.inst = SRLI; }
+                        (f7[5:5] == 1bv1) : { args.inst = SRAI; }
                     esac
                     call exec_i_shift(args);
                 } else {
@@ -194,12 +267,12 @@ module cpu {
                     args.rd = rd;
                     args.imm = i_imm;
                     case
-                        (f3 == F3_ADDI) : { args.inst = addi; }
-                        (f3 == F3_SLTI) : { args.inst = slti; }
-                        (f3 == F3_SLTIU) : { args.inst = sltiu; }
-                        (f3 == F3_XORI) : { args.inst = xori; }
-                        (f3 == F3_ORI) : { args.inst = ori; }
-                        (f3 == F3_ANDI) : { args.inst = andi; }
+                        (f3 == F3_ADDI) : { args.inst = ADDI; }
+                        (f3 == F3_SLTI) : { args.inst = SLTI; }
+                        (f3 == F3_SLTIU) : { args.inst = SLTIU; }
+                        (f3 == F3_XORI) : { args.inst = XORI; }
+                        (f3 == F3_ORI) : { args.inst = ORI; }
+                        (f3 == F3_ANDI) : { args.inst = ANDI; }
                     esac
                     call exec_i_arith(args);
                 }
@@ -210,35 +283,82 @@ module cpu {
                 args.rs1 = rs1;
                 args.imm = i_imm;
                 case
-                    (f3 == F3_LB) : { args.inst = lb; }
-                    (f3 == F3_LBU) : { args.inst = lbu; }
-                    (f3 == F3_LH) : { args.inst = lh; }
-                    (f3 == F3_LHU) : { args.inst = lhu; }
-                    (f3 == F3_LW) : { args.inst = lw; }
+                    (f3 == F3_LB) : { args.inst = LB; }
+                    (f3 == F3_LBU) : { args.inst = LBU; }
+                    (f3 == F3_LH) : { args.inst = LH; }
+                    (f3 == F3_LHU) : { args.inst = LHU; }
+                    (f3 == F3_LW) : { args.inst = LW; }
                 esac
                 call exec_i_mem(args);
             }
             (oc == OPCODE_R) : {
-                pc = pc + 4bv32;
+                var args : rtype_t;
+                args.rd = rd;
+                args.rs1 = rs1;
+                args.rs2 = rs2;
+                case
+                    (f3 == F3_ADD) : { args.inst = if (f7[5:5] == 0bv1) then ADD else SUB; }
+                    (f3 == F3_SLL) : { args.inst = SLL; }
+                    (f3 == F3_SLT) : { args.inst = SLT; }
+                    (f3 == F3_SLTU) : { args.inst = SLTU; }
+                    (f3 == F3_XOR) : { args.inst = XOR; }
+                    (f3 == F3_SR) : { args.inst = if (f7[5:5] == 0bv1) then SRA else SRL; }
+                    (f3 == F3_OR) : { args.inst = OR; }
+                    (f3 == F3_AND) : { args.inst = AND; }
+                esac
+                call exec_r(args);
             }
-*/
             (oc == OPCODE_S) : {
                 var args : stype_t;
+                args.rs1 = rs1;
+                args.rs2 = rs2;
+                args.imm = get_s_imm(inst);
                 case
-                    (f3 == F3_SB) : { s_inst = SB; }
-                    (f3 == F3_SH) : { s_inst = SH; }
-                    (f3 == F3_SW) : { s_inst = SW; }
+                    (f3 == F3_SB) : { args.inst = SB; }
+                    (f3 == F3_SH) : { args.inst = SH; }
+                    (f3 == F3_SW) : { args.inst = SW; }
                 esac
-                args = { s_inst, rs1, rs2, s_imm };
-//                call exec_s(args);
+                call exec_s(args);
             }
             (oc == OPCODE_B) : {
+                var args : btype_t;
+                args.rs1 = rs1;
+                args.rs2 = rs2;
+                args.imm = get_b_imm(inst);
+                case
+                    (f3 == F3_BEQ) : { args.inst = BEQ; }
+                    (f3 == F3_BNE) : { args.inst = BNE; }
+                    (f3 == F3_BLT) : { args.inst = BLT; }
+                    (f3 == F3_BGE) : { args.inst = BGE; }
+                    (f3 == F3_BLTU) : { args.inst = BLTU; }
+                    (f3 == F3_BGEU) : { args.inst = BGEU; }
+                esac
+                call exec_b(args);
             }
-            (oc == OPCODE_U) : {
-                pc = pc + 4bv32;
+            (oc == OPCODE_AUIPC || oc == OPCODE_LUI) : {
+                var args : utype_t;
+                args.rd = rd;
+                args.imm = get_u_imm(inst);
+                case
+                    (oc == OPCODE_AUIPC) : { args.inst = AUIPC; }
+                    (oc == OPCODE_LUI) : { args.inst = AUIPC; }
+                esac
+                call exec_u(args);
             }
-            (oc == OPCODE_J) : {
+            (oc == OPCODE_JAL) : {
+                var args : jal_t;
+                args.rd = rd;
+                args.imm = get_j_imm(inst);
+                call exec_jal(args);
             }
+            (oc == OPCODE_JALR) : {
+                var args : jalr_t;
+                args.rd = rd;
+                args.rs1 = rs1;
+                args.imm = get_i_imm(inst);
+                call exec_jalr(args);
+            }
+            // TODO ecall, ebreak?
         esac
     }
 
@@ -300,7 +420,12 @@ module main {
 
     init {
         // Checks that only implemented instructions are generated
-        assume (forall (a : mem_word_addr_t) :: get_opcode(imem[a]) == OPCODE_I_MEM || get_opcode(imem[a]) == OPCODE_I_ARITH || get_opcode(imem[a]) == OPCODE_S);
+        assume (forall (a : mem_word_addr_t) ::
+            get_opcode(imem[a]) == OPCODE_I_MEM ||
+            get_opcode(imem[a]) == OPCODE_I_ARITH ||
+            get_opcode(imem[a]) == OPCODE_S ||
+            get_opcode(imem[a]) == OPCODE_R
+        );
     }
 
     next {
@@ -309,7 +434,7 @@ module main {
     }
 
     invariant eq_regs : (forall (r : reg_addr_t) :: cpu_1.regfile[r] == cpu_2.regfile[r]);
-    invariant eq_mem : (forall (a : mem_word_addr_t) :: cpu_1.dmem[a] == cpu_2.dmem[a]);
+    // invariant eq_mem : (forall (a : mem_word_addr_t) :: cpu_1.dmem[a] == cpu_2.dmem[a]);
     invariant eq_pc : (cpu_1.pc == cpu_2.pc);
     invariant eq_inst : (cpu_1.inst == cpu_2.inst);
 
