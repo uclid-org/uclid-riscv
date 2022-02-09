@@ -86,8 +86,8 @@ module cpu {
         case
             (i == ADDI) : { new_rd_val = rs1_val + imm_ext; }
             // FIX: bv_left_shift seems not to type check until it reaches the smt backend
-            (i == SLTI) : { new_rd_val = if (imm_ext > rs1_val) then 1bv32 else 0bv32; }
-            (i == SLTIU) : { new_rd_val = if (imm_ext >=_u rs1_val) then 1bv32 else 0bv32; }
+            (i == SLTI) : { new_rd_val = if (rs1_val < imm_ext) then 1bv32 else 0bv32; }
+            (i == SLTIU) : { new_rd_val = if (rs1_val <_u imm_ext) then 1bv32 else 0bv32; }
             (i == XORI) : { new_rd_val = rs1_val ^ imm_ext; }
             (i == ORI) : { new_rd_val = rs1_val | imm_ext; }
             (i == ANDI) : { new_rd_val = rs1_val & imm_ext; }
@@ -165,8 +165,8 @@ module cpu {
             (i == ADD) : { new_rd_val = rs1_val + rs2_val; }
             (i == SUB) : { new_rd_val = rs1_val - rs2_val; }
             (i == SLL) : { new_rd_val = bv_left_shift(rs2_val, rs1_val); }
-            (i == SLT) : { new_rd_val = if (rs2_val > rs1_val) then 1bv32 else 0bv32; }
-            (i == SLTU) : { new_rd_val = if (rs2_val >=_u rs1_val) then 1bv32 else 0bv32; }
+            (i == SLT) : { new_rd_val = if (rs1_val < rs2_val) then 1bv32 else 0bv32; }
+            (i == SLTU) : { new_rd_val = if (rs1_val <=_u rs2_val) then 1bv32 else 0bv32; }
             (i == XOR) : { new_rd_val = rs1_val ^ rs2_val; }
             (i == SRL) : { new_rd_val = bv_l_right_shift(rs2_val, rs1_val); }
             (i == SRA) : { new_rd_val = bv_a_right_shift(rs2_val, rs1_val); }
