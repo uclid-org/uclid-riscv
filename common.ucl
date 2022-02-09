@@ -56,6 +56,49 @@ module encdec {
     define get_f3(inst : inst_t) : bv3 = inst[14:12];
     define get_f7(inst : inst_t) : bv7 = inst[31:25];
 
+    procedure encode_itype_arith(args : itype_arith_t)
+        returns (inst : inst_t)
+    {
+        var f3 : bv3;
+        var i : itype_arith_inst_t;
+        i = args.inst;
+        case
+            (i == ADDI) : { f3 = F3_ADDI; }
+            (i == SLTI) : { f3 = F3_SLTI; }
+            (i == SLTIU) : { f3 = F3_SLTIU; }
+            (i == XORI) : { f3 = F3_XORI; }
+            (i == ORI) : { f3 = F3_ORI; }
+            (i == ANDI) : { f3 = F3_ANDI; }
+        esac
+        inst = args.imm ++ args.rs1 ++ f3 ++ args.rd ++ OPCODE_I_ARITH;
+    }
+
+    procedure encode_rtype(args : rtype_t)
+        returns (inst : inst_t)
+    {
+        var f3 : bv3;
+        var f7 : bv7;
+        var i : rtype_inst_t;
+        i = args.inst;
+        case
+            (i == ADD || i == SUB) : { f3 = F3_ADD; }
+            (i == SUB) : { f3 = F3_ADD; }
+            (i == SLL) : { f3 = F3_SLL; }
+            (i == SLT) : { f3 = F3_SLT; }
+            (i == SLTU) : { f3 = F3_SLTU; }
+            (i == XOR) : { f3 = F3_XOR; }
+            (i == SRL || i == SRA) : { f3 = F3_SR; }
+            (i == OR) : { f3 = F3_OR; }
+            (i == AND) : { f3 = F3_AND; }
+        esac
+        if (args.inst == SUB || args.inst == SRA) {
+            f7 = 0b0100000bv7;
+        } else {
+            f7 = 0bv7;
+        }
+        inst = f7 ++ args.rs2 ++ args.rs1 ++ f3 ++ args.rd ++ OPCODE_R;
+    }
+
     const OPCODE_I_MEM      : bv7 = 0b0000011bv7;
     const OPCODE_I_ARITH    : bv7 = 0b0010011bv7;
     const OPCODE_R          : bv7 = 0b0110011bv7;
