@@ -1,35 +1,49 @@
 
-module test_itype {
+module main {
     type * = common.*;
+    define * = common.*;
     type * = instructions.*; // needed to fix enum import bug
 
     var imem : mem_t;
+    var step : integer;
 
     instance cpu_0 : cpu (imem : (imem));
 
     init {
-        imem[0bv30] = 0x00000013bv32; // nop
-        imem[1bv30] = 0x06400593bv32; // addi a1, x0, 100
-        imem[2bv30] = 0x0C800613bv32; // addi a2, x0, 200
-        imem[3bv30] = 0x06466593bv32; // ori  a1, a2, 100
-        // nops everywhere else
-        assume (forall (a : mem_word_addr_t) :: (a > 3bv30) ==> imem[a] == 0x13bv32);
+        assume (imem[0bv30] == 0x00000013bv32); // nop
+        assume (imem[1bv30] == 0x06400593bv32); // addi a1, x0, 100
+        assume (imem[2bv30] == 0x0C800613bv32); // addi a2, x0, 200
+        assume (imem[3bv30] == 0x06466593bv32); // ori  a1, a2, 100
+        step = 0;
     }
 
     next {
         next (cpu_0);
+        case
+            (step == 1) : {
+                assert (cpu_0.regfile[11bv5] == 100bv32);
+            }
+            (step == 2) : {
+                assert (cpu_0.regfile[12bv5] == 200bv32);
+            }
+            (step == 3) : {
+                assert (cpu_0.regfile[11bv5] == 236bv32);
+            }
+        esac
+        step' = step + 1;
     }
 
+    /*
     invariant s1 : (cpu_0.pc == 4bv32) ==> (cpu_0.regfile[11bv5] == 100bv32);
     invariant s2 : (cpu_0.pc == 8bv32) ==> (cpu_0.regfile[12bv5] == 200bv32);
     invariant s3 : (cpu_0.pc == 12bv32) ==> (cpu_0.regfile[11bv5] == 236bv32);
+    */
 
     control {
-        vobj = bmc(5);
+        vobj = bmc_noLTL(5); // FIX: why does 'bmc' here not work?
         check;
         print_results;
-        vobj.print_cex(cpu_0.pc, cpu_0.inst, cpu_0.regfile);
+        vobj.print_cex(step, cpu_0.pc, imem, cpu_0.regfile);
     }
 }
-
 

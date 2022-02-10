@@ -14,7 +14,7 @@ module common {
 }
 
 module instructions {
-    // FIX: in order to use enums variants in module, the type must also be imported in main
+    // FIX: in order to use enums variants in module, the type must also be imported in the module being run
     type rtype_inst_t       = enum { ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND };
     type rtype_t            = record { inst : rtype_inst_t, rd : bv5, rs1 : bv5, rs2 : bv5 };
 
@@ -36,6 +36,8 @@ module instructions {
 
     type jal_t              = record { rd : bv5, imm : bv21 };
     type jalr_t             = record { rd : bv5, rs1 : bv5, imm : bv12 };
+
+    const NOP : inst_t      = 0x13bv32;
 }
 
 module encdec {
@@ -71,6 +73,21 @@ module encdec {
             (i == ANDI) : { f3 = F3_ANDI; }
         esac
         inst = args.imm ++ args.rs1 ++ f3 ++ args.rd ++ OPCODE_I_ARITH;
+    }
+
+    procedure encode_itype_shift(args : itype_shift_t)
+        returns (inst : inst_t)
+    {
+        var f3 : bv3;
+        var f7 : bv7;
+        var i : itype_shift_inst_t;
+        i = args.inst;
+        case
+            (i == SLLI) : { f3 = F3_SLLI; f7 = 0bv7; }
+            (i == SRAI) : { f3 = F3_SRI; f7 = 0b0100000bv7; }
+            (i == SRLI) : { f3 = F3_SRI; f7 = 0bv7; }
+        esac
+        inst = f7 ++ args.shamt ++ args.rs1 ++ f3 ++ args.rd ++ OPCODE_I_ARITH;
     }
 
     procedure encode_rtype(args : rtype_t)

@@ -14,7 +14,6 @@ module cpu {
     var dmem    : mem_t;
     var regfile : regfile_t;
     var pc      : pc_t;
-    var inst    : inst_t;
     var invalid_inst : boolean; // placeholder for more complicated trap handling
 
     // ===== BEGIN STATE HELPER FUNCTIONS =====
@@ -232,6 +231,7 @@ module cpu {
     procedure exec_next_inst()
         modifies pc, regfile, dmem, invalid_inst;
     {
+        var inst : inst_t;
         var oc : bv7;
         var rs1 : bv5;
         var rs2 : bv5;
@@ -242,6 +242,7 @@ module cpu {
         var i_shift_inst : itype_shift_inst_t;
         var i_mem_inst : itype_mem_inst_t;
         var s_inst : stype_inst_t;
+        inst = imem[pc_to_mem_addr(pc)];
         oc = get_opcode(inst);
         rs1 = get_rs1(inst);
         rs2 = get_rs2(inst);
@@ -262,7 +263,9 @@ module cpu {
                         (f7[5:5] == 1bv1) : { args.inst = SRAI; }
                         default: { invalid_inst = true; }
                     esac
-                    call exec_i_shift(args);
+                    if (!invalid_inst) {
+                        call exec_i_shift(args);
+                    }
                 } else {
                     var args : itype_arith_t;
                     args.rs1 = rs1;
@@ -277,7 +280,9 @@ module cpu {
                         (f3 == F3_ANDI) : { args.inst = ANDI; }
                         default: { invalid_inst = true; }
                     esac
-                    call exec_i_arith(args);
+                    if (!invalid_inst) {
+                        call exec_i_arith(args);
+                    }
                 }
             } 
             (oc == OPCODE_I_MEM) : {
@@ -293,7 +298,9 @@ module cpu {
                     (f3 == F3_LW) : { args.inst = LW; }
                     default: { invalid_inst = true; }
                 esac
-                call exec_i_mem(args);
+                if (!invalid_inst) {
+                    call exec_i_mem(args);
+                }
             }
             (oc == OPCODE_R) : {
                 var args : rtype_t;
@@ -311,7 +318,9 @@ module cpu {
                     (f3 == F3_AND) : { args.inst = AND; }
                     default: { invalid_inst = true; }
                 esac
-                call exec_r(args);
+                if (!invalid_inst) {
+                    call exec_r(args);
+                }
             }
             (oc == OPCODE_S) : {
                 var args : stype_t;
@@ -324,7 +333,9 @@ module cpu {
                     (f3 == F3_SW) : { args.inst = SW; }
                     default: { invalid_inst = true; }
                 esac
-                call exec_s(args);
+                if (!invalid_inst) {
+                    call exec_s(args);
+                }
             }
             (oc == OPCODE_B) : {
                 var args : btype_t;
@@ -340,7 +351,9 @@ module cpu {
                     (f3 == F3_BGEU) : { args.inst = BGEU; }
                     default: { invalid_inst = true; }
                 esac
-                call exec_b(args);
+                if (!invalid_inst) {
+                    call exec_b(args);
+                }
             }
             (oc == OPCODE_AUIPC || oc == OPCODE_LUI) : {
                 var args : utype_t;
@@ -351,7 +364,9 @@ module cpu {
                     (oc == OPCODE_LUI) : { args.inst = AUIPC; }
                     default: { invalid_inst = true; }
                 esac
-                call exec_u(args);
+                if (!invalid_inst) {
+                    call exec_u(args);
+                }
             }
             (oc == OPCODE_JAL) : {
                 var args : jal_t;
@@ -373,22 +388,21 @@ module cpu {
 
     init {
         assume (forall (r : reg_addr_t) :: regfile[r] == 0bv32);
-        assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
-        inst = imem[0bv30];
+        // assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
         pc = 0bv32;
         invalid_inst = false;
     }
 
     next {
-        inst' = imem[pc_to_mem_addr(pc)];
         if (!invalid_inst) {
             call exec_next_inst();
         }
     }
 }
 
-module main {
+module sanity {
     type * = common.*;
+    define * = common.*;
     type * = instructions.*;
     define * = instructions.*;
     const * = instructions.*;
@@ -418,12 +432,11 @@ module main {
     invariant eq_regs : (forall (r : reg_addr_t) :: cpu_1.regfile[r] == cpu_2.regfile[r]);
     // invariant eq_mem : (forall (a : mem_word_addr_t) :: cpu_1.dmem[a] == cpu_2.dmem[a]);
     invariant eq_pc : (cpu_1.pc == cpu_2.pc);
-    invariant eq_inst : (cpu_1.inst == cpu_2.inst);
 
     control {
         vobj = bmc(3);
         check;
         print_results;
-        vobj.print_cex(cpu_1.inst, cpu_2.inst, cpu_1.regfile, cpu_2.regfile);
+        vobj.print_cex(cpu_1.pc, cpu_2.pc, imem, cpu_1.regfile, cpu_2.regfile);
     }
 }

@@ -1,39 +1,52 @@
 
-module test_rtype {
+module main {
     type * = common.*;
     type * = instructions.*; // needed to fix enum import bug
+    const * = instructions.*;
 
     var imem : mem_t;
+    var step : integer;
 
     instance cpu_0 : cpu (imem : (imem));
-    instance enc : encdec();
 
     init {
-        var i2 : itype_arith_t;
-        i2.inst = ADDI;
-        i2.rd = 8bv5;
-        i2.rs1 = 0bv5;
-        i2.imm = 200bv12;
-        // i2 = { ADDI, 8bv5, 0bv5, 200bv12 }; // record literals are weird
-        imem[0bv30] = 0x06400413bv32; // addi s0, x0, 100
-        call (imem[1bv30]) = enc.encode_itype_arith(i2); // addi s1, x0, 200
-        imem[2bv30] = 0x408484B3bv32; // sub  s1, s1, s0
-       // nops everywhere else
+        // i2 = { ADDI, 8bv5, 0bv5, 200bv12 }; // record literals don't work :/
+        assume (imem[0bv30] == 0x06400413bv32); // addi s0, x0, 100
+        assume (imem[1bv30] == 0x0C800493bv32); // addi s1, x0, 200
+        assume (imem[2bv30] == 0x408484B3bv32); // sub  s1, s1, s0
+        assume (imem[3bv30] == NOP); // without this nop, it's undet?
+        step = 0;
     }
 
     next {
         next (cpu_0);
+        case
+            /*
+            (step == 1) : {
+                assert (cpu_0.regfile[8bv5] == 100bv32);
+            }
+            (step == 2) : {
+                assert (cpu_0.regfile[8bv5] == 200bv32);
+            }
+            */
+            (step == 3) : {
+                assert (cpu_0.regfile[9bv5] == 100bv32);
+            }
+        esac
+        step' = step + 1;
     }
 
+    /*
     invariant s1 : (cpu_0.pc == 4bv32) ==> (cpu_0.regfile[8bv5] == 100bv32);
     invariant s2 : (cpu_0.pc == 8bv32) ==> (cpu_0.regfile[9bv5] == 200bv32);
     invariant s3 : (cpu_0.pc == 12bv32) ==> (cpu_0.regfile[9bv5] == 100bv32);
+    */
 
     control {
-        vobj = bmc(5);
+        vobj = bmc_noLTL(5); // FIX: why does 'bmc' here not work? 'bmc_noLTL' returns undef without nop at end
         check;
         print_results;
-        vobj.print_cex(cpu_0.pc, cpu_0.inst, cpu_0.regfile);
+        vobj.print_cex(step, cpu_0.invalid_inst, cpu_0.pc, imem, cpu_0.regfile);
     }
 }
 
