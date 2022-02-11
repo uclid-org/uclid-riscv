@@ -3,9 +3,10 @@ module main {
     type * = common.*;
     type * = instructions.*; // needed to fix enum import bug
     const * = instructions.*;
+    const * = registers.*;
 
     var imem : mem_t;
-    // var step : integer;
+    var step : integer;
 
     instance cpu_0 : cpu (imem : (imem));
 
@@ -27,32 +28,35 @@ module main {
         next (cpu_0);
         // step' = step + 1;
         case
-            (cpu_0.pc == 4bv32) : { assert (cpu_0.regfile[8bv5] == 400bv32); }
-            (cpu_0.pc == 8bv32) : { assert (cpu_0.regfile[9bv5] == 0xFFFFFFF4bv32); }
-            (cpu_0.pc == 12bv32) : { assert (cpu_0.regfile[18bv5] == 0x12bv32); }
-            (cpu_0.pc == 16bv32) : { assert (cpu_0.regfile[9bv5] == 0xFFFFABCDbv32); }
-            (cpu_0.pc == 20bv32) : { assert (cpu_0.regfile[9bv5] == 0x12F4bv32); }
-            (cpu_0.pc == 24bv32) : { assert (cpu_0.regfile[9bv5] == 0xFFbv32); }
+            // for some reason, STEP doesn't increment properly in the last cycle
+            (cpu_0.pc == 4bv32) : { assert (cpu_0.regfile[s0] == 400bv32); }
+            (cpu_0.pc == 8bv32) : { assert (cpu_0.regfile[s1] == 0xFFFFFFF4bv32); }
+            (cpu_0.pc == 12bv32) : { assert (cpu_0.regfile[s2] == 0x12bv32); }
+            (cpu_0.pc == 16bv32) : { assert (cpu_0.regfile[s1] == 0xFFFFABCDbv32); }
+            (cpu_0.pc == 20bv32) : { assert (cpu_0.regfile[s1] == 0x12F4bv32); }
+            (cpu_0.pc == 24bv32) : { assert (cpu_0.regfile[s1] == 0xFFbv32); }
             (cpu_0.pc == 28bv32) : { assert (cpu_0.dmem[100bv30] == 0xABCDFFF4bv32); }
-            (cpu_0.pc == 32bv32) : { assert (cpu_0.regfile[9bv5] == 0xABCDFFF4bv32); }
+            (cpu_0.pc == 32bv32) : { assert (cpu_0.regfile[s1] == 0xABCDFFF4bv32); }
             /*
-            (step == 1) : { assert (cpu_0.regfile[8bv5] == 400bv32); }
-            (step == 2) : { assert (cpu_0.regfile[9bv5] == 0xFFFFFFF4bv32); }
-            (step == 3) : { assert (cpu_0.regfile[18bv5] == 0x12bv32); }
-            (step == 4) : { assert (cpu_0.regfile[9bv5] == 0xFFFFABCDbv32); }
-            (step == 5) : { assert (cpu_0.regfile[9bv5] == 0x12F4bv32); }
-            (step == 6) : { assert (cpu_0.regfile[9bv5] == 0xFFbv32); }
+            (step == 1) : { assert (cpu_0.regfile[s0] == 400bv32); }
+            (step == 2) : { assert (cpu_0.regfile[s1] == 0xFFFFFFF4bv32); }
+            (step == 3) : { assert (cpu_0.regfile[s2] == 0x12bv32); }
+            (step == 4) : { assert (cpu_0.regfile[s1] == 0xFFFFABCDbv32); }
+            (step == 5) : { assert (cpu_0.regfile[s1] == 0x12F4bv32); }
+            (step == 6) : { assert (cpu_0.regfile[s1] == 0xFFbv32); }
             (step == 7) : { assert (cpu_0.dmem[100bv30] == 0xABCDFFF4bv32); }
-            (step == 8) : { assert (cpu_0.regfile[9bv5] == 0xABCDFFF4bv32); }
+            (step == 8) : { assert (cpu_0.regfile[s1] == 0xABCDFFF4bv32); }
             */
         esac
     }
+    
+    invariant no_exception : cpu_0.exception == X_NONE;
 
     control {
         vobj = bmc_noLTL(9);
         check;
         print_results;
-        vobj.print_cex(cpu_0.invalid_inst, cpu_0.pc, imem, cpu_0.regfile, cpu_0.dmem);
+        vobj.print_cex(cpu_0.exception, cpu_0.pc, imem, cpu_0.regfile, cpu_0.dmem);
     }
 }
 

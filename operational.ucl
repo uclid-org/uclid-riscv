@@ -14,19 +14,20 @@ module cpu {
     var dmem    : mem_t;
     var regfile : regfile_t;
     var pc      : pc_t;
-    var invalid_inst : boolean; // placeholder for more complicated trap handling
+    var exception : exception_cause_t; // placeholder for more complicated trap handling
 
     // ===== BEGIN STATE HELPER FUNCTIONS =====
     procedure do_reg_write(rd : reg_addr_t, value : reg_data_t)
         modifies regfile;
     {
-        if (rd != x0) {
+        if (rd != registers.x0) {
             regfile[rd] = value;
         }
     }
 
     procedure do_mem_read(addr : reg_data_t, width : mem_data_width_t, sext : boolean)
         returns (new_rd_val : reg_data_t)
+        modifies exception;
     {
         var word_addr : mem_word_addr_t;
         var word_ofs : bv2;
@@ -36,37 +37,47 @@ module cpu {
         // Shift word by appropriate offset
         // Assumes little endianness (LSB is at byte 0 of word, MSB at byte 3)
         shifted_data = bv_a_right_shift(bv_left_shift(3bv32, bv_zero_extend(30, word_ofs)), dmem[word_addr]);
-        // TODO deal with alignment checks
-        case
-            (width == BYTE) : { new_rd_val = if (sext) then bv_sign_extend(24, shifted_data[7:0]) else bv_zero_extend(24, shifted_data[7:0]); }
-            (width == HALF) : { new_rd_val = if (sext) then bv_sign_extend(16, shifted_data[15:0]) else bv_zero_extend(16, shifted_data[15:0]); }
-            (width == WORD) : { new_rd_val = shifted_data; }
-        esac
+        // Alignment check
+        if ((width == HALF && word_ofs[0:0] != 0bv1) || (width == WORD && word_ofs != 0bv2)) {
+            exception = X_MISALIGNED_MEM;
+        } else {
+            case
+                (width == BYTE) : { new_rd_val = if (sext) then bv_sign_extend(24, shifted_data[7:0]) else bv_zero_extend(24, shifted_data[7:0]); }
+                (width == HALF) : { new_rd_val = if (sext) then bv_sign_extend(16, shifted_data[15:0]) else bv_zero_extend(16, shifted_data[15:0]); }
+                (width == WORD) : { new_rd_val = shifted_data; }
+            esac
+        }
     }
 
     procedure do_mem_write(addr : reg_data_t, width : mem_data_width_t, value : reg_data_t)
-        modifies dmem;
+        modifies dmem, exception;
     {
         // TODO handle alignment
         var word_addr : mem_word_addr_t;
         var bit_ofs: bv32;
+        var word_ofs : bv2;
         var old_word : mem_data_t;
         var new_mem_data : mem_data_t;
         word_addr = addr[31:2];
+        word_ofs = addr[1:0];
         bit_ofs = bv_left_shift(3bv32, bv_zero_extend(30, addr[1:0]));
         old_word = dmem[word_addr];
-        case
-            (width == BYTE) : {
-                old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFbv32));
-                new_mem_data = old_word | bv_left_shift(bit_ofs, value & 0xFFbv32);
-            }
-            (width == HALF) : {
-                old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFFFbv32));
-                new_mem_data = old_word | bv_left_shift(bit_ofs, value & 0xFFFFbv32);
-            }
-            (width == WORD) : { new_mem_data = old_word | bv_left_shift(bit_ofs, value); }
-        esac
-        dmem[word_addr] = new_mem_data;
+        if ((width == HALF && word_ofs[0:0] != 0bv1) || (width == WORD && word_ofs != 0bv2)) {
+            exception = X_MISALIGNED_MEM;
+        } else {
+            case
+                (width == BYTE) : {
+                    old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFbv32));
+                    new_mem_data = old_word | bv_left_shift(bit_ofs, value & 0xFFbv32);
+                }
+                (width == HALF) : {
+                    old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFFFbv32));
+                    new_mem_data = old_word | bv_left_shift(bit_ofs, value & 0xFFFFbv32);
+                }
+                (width == WORD) : { new_mem_data = old_word | bv_left_shift(bit_ofs, value); }
+            esac
+            dmem[word_addr] = new_mem_data;
+        }
     }
 
     // ===== END STATE HELPER FUNCTIONS =====
@@ -90,7 +101,6 @@ module cpu {
             (i == XORI) : { new_rd_val = rs1_val ^ imm_ext; }
             (i == ORI) : { new_rd_val = rs1_val | imm_ext; }
             (i == ANDI) : { new_rd_val = rs1_val & imm_ext; }
-            // TODO handle invalid instructions (restrict w/ assumption?)
         esac
         call do_reg_write(args.rd, new_rd_val);
         pc = pc + 4bv32;
@@ -116,7 +126,7 @@ module cpu {
     }
 
     procedure exec_i_mem(args : itype_mem_t)
-        modifies regfile, pc;
+        modifies regfile, pc, exception;
     {
         var addr : reg_data_t;
         var i : itype_mem_inst_t;
@@ -135,7 +145,7 @@ module cpu {
     }
 
     procedure exec_s(args : stype_t)
-        modifies dmem, pc;
+        modifies dmem, pc, exception;
     {
         // Returns memory value shifted/masked appropriately
         var addr : reg_data_t;
@@ -229,7 +239,7 @@ module cpu {
 
     // Decodes and executes an instruction from IMEM
     procedure exec_next_inst()
-        modifies pc, regfile, dmem, invalid_inst;
+        modifies pc, regfile, dmem, exception;
     {
         var inst : inst_t;
         var oc : bv7;
@@ -261,9 +271,9 @@ module cpu {
                         (f3 == F3_SLLI) : { args.inst = SLLI; }
                         (f7[5:5] == 0bv1) : { args.inst = SRLI; }
                         (f7[5:5] == 1bv1) : { args.inst = SRAI; }
-                        default: { invalid_inst = true; }
+                        default: { exception = X_INVALID_INST; }
                     esac
-                    if (!invalid_inst) {
+                    if (exception != X_INVALID_INST) {
                         call exec_i_shift(args);
                     }
                 } else {
@@ -278,9 +288,9 @@ module cpu {
                         (f3 == F3_XORI) : { args.inst = XORI; }
                         (f3 == F3_ORI) : { args.inst = ORI; }
                         (f3 == F3_ANDI) : { args.inst = ANDI; }
-                        default: { invalid_inst = true; }
+                        default: { exception = X_INVALID_INST; }
                     esac
-                    if (!invalid_inst) {
+                    if (exception != X_INVALID_INST) {
                         call exec_i_arith(args);
                     }
                 }
@@ -296,9 +306,9 @@ module cpu {
                     (f3 == F3_LH) : { args.inst = LH; }
                     (f3 == F3_LHU) : { args.inst = LHU; }
                     (f3 == F3_LW) : { args.inst = LW; }
-                    default: { invalid_inst = true; }
+                    default: { exception = X_INVALID_INST; }
                 esac
-                if (!invalid_inst) {
+                if (exception != X_INVALID_INST) {
                     call exec_i_mem(args);
                 }
             }
@@ -316,9 +326,9 @@ module cpu {
                     (f3 == F3_SR) : { args.inst = if (f7[5:5] == 0bv1) then SRA else SRL; }
                     (f3 == F3_OR) : { args.inst = OR; }
                     (f3 == F3_AND) : { args.inst = AND; }
-                    default: { invalid_inst = true; }
+                    default: { exception = X_INVALID_INST; }
                 esac
-                if (!invalid_inst) {
+                if (exception != X_INVALID_INST) {
                     call exec_r(args);
                 }
             }
@@ -331,9 +341,9 @@ module cpu {
                     (f3 == F3_SB) : { args.inst = SB; }
                     (f3 == F3_SH) : { args.inst = SH; }
                     (f3 == F3_SW) : { args.inst = SW; }
-                    default: { invalid_inst = true; }
+                    default: { exception = X_INVALID_INST; }
                 esac
-                if (!invalid_inst) {
+                if (exception != X_INVALID_INST) {
                     call exec_s(args);
                 }
             }
@@ -349,9 +359,9 @@ module cpu {
                     (f3 == F3_BGE) : { args.inst = BGE; }
                     (f3 == F3_BLTU) : { args.inst = BLTU; }
                     (f3 == F3_BGEU) : { args.inst = BGEU; }
-                    default: { invalid_inst = true; }
+                    default: { exception = X_INVALID_INST; }
                 esac
-                if (!invalid_inst) {
+                if (exception != X_INVALID_INST) {
                     call exec_b(args);
                 }
             }
@@ -362,9 +372,9 @@ module cpu {
                 case
                     (oc == OPCODE_AUIPC) : { args.inst = AUIPC; }
                     (oc == OPCODE_LUI) : { args.inst = AUIPC; }
-                    default: { invalid_inst = true; }
+                    default: { exception = X_INVALID_INST; }
                 esac
-                if (!invalid_inst) {
+                if (exception != X_INVALID_INST) {
                     call exec_u(args);
                 }
             }
@@ -381,7 +391,7 @@ module cpu {
                 args.imm = get_i_imm(inst);
                 call exec_jalr(args);
             }
-            default : { invalid_inst = true; }
+            default : { exception = X_INVALID_INST; }
             // TODO ecall, ebreak?
         esac
     }
@@ -390,11 +400,11 @@ module cpu {
         assume (forall (r : reg_addr_t) :: regfile[r] == 0bv32);
         // assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
         pc = 0bv32;
-        invalid_inst = false;
+        exception = X_NONE;
     }
 
     next {
-        if (!invalid_inst) {
+        if (exception == X_NONE) {
             call exec_next_inst();
         }
     }

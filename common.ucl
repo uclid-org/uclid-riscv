@@ -10,6 +10,15 @@ module common {
 
     type mem_data_width_t   = enum { BYTE, HALF, WORD, DWORD };
 
+    type exception_cause_t  = enum {
+        X_NONE,             // "None" value if no exception has occurred
+        X_MISALIGNED_MEM,   // Memory access not aligned to natural datatype width
+        X_MISALIGNED_INST,  // ISA spec requires jump targets to be 4-byte aligned
+        X_ECALL,            // Control transferred by user-space ecall instruction
+        X_EBREAK,           // Control transferred by user-space ebreak instruction
+        X_INVALID_INST      // Failed to decode instruction
+    };
+
     define pc_to_mem_addr(pc : pc_t) : mem_word_addr_t = pc[31:2];
 }
 
@@ -40,11 +49,79 @@ module instructions {
     const NOP : inst_t      = 0x13bv32;
 }
 
+module registers {
+    const x0 : bv5 = 0bv5;
+    const x1 : bv5 = 1bv5;
+    const x2 : bv5 = 2bv5;
+    const x3 : bv5 = 3bv5;
+    const x4 : bv5 = 4bv5;
+    const x5 : bv5 = 5bv5;
+    const x6 : bv5 = 6bv5;
+    const x7 : bv5 = 7bv5;
+    const x8 : bv5 = 8bv5;
+    const x9 : bv5 = 9bv5;
+    const x10 : bv5 = 10bv5;
+    const x11 : bv5 = 11bv5;
+    const x12 : bv5 = 12bv5;
+    const x13 : bv5 = 13bv5;
+    const x14 : bv5 = 14bv5;
+    const x15 : bv5 = 15bv5;
+    const x16 : bv5 = 16bv5;
+    const x17 : bv5 = 17bv5;
+    const x18 : bv5 = 18bv5;
+    const x19 : bv5 = 19bv5;
+    const x20 : bv5 = 20bv5;
+    const x21 : bv5 = 21bv5;
+    const x22 : bv5 = 22bv5;
+    const x23 : bv5 = 23bv5;
+    const x24 : bv5 = 24bv5;
+    const x25 : bv5 = 25bv5;
+    const x26 : bv5 = 26bv5;
+    const x27 : bv5 = 27bv5;
+    const x28 : bv5 = 28bv5;
+    const x29 : bv5 = 29bv5;
+    const x30 : bv5 = 30bv5;
+    const x31 : bv5 = 31bv5;
+    const x32 : bv5 = 32bv5;
+
+    const zero : bv5 = 0bv5;
+    const ra : bv5 = 1bv5;
+    const sp : bv5 = 2bv5;
+    const gp : bv5 = 3bv5;
+    const tp : bv5 = 4bv5;
+    const t0 : bv5 = 5bv5;
+    const t1 : bv5 = 6bv5;
+    const t2 : bv5 = 7bv5;
+    const s0 : bv5 = 8bv5;
+    const fp : bv5 = 8bv5;
+    const s1 : bv5 = 9bv5;
+    const a0 : bv5 = 10bv5;
+    const a1 : bv5 = 11bv5;
+    const a2 : bv5 = 12bv5;
+    const a3 : bv5 = 13bv5;
+    const a4 : bv5 = 14bv5;
+    const a5 : bv5 = 15bv5;
+    const a6 : bv5 = 16bv5;
+    const a7 : bv5 = 17bv5;
+    const s2 : bv5 = 18bv5;
+    const s3 : bv5 = 19bv5;
+    const s4 : bv5 = 20bv5;
+    const s5 : bv5 = 21bv5;
+    const s6 : bv5 = 22bv5;
+    const s7 : bv5 = 23bv5;
+    const s8 : bv5 = 24bv5;
+    const s9 : bv5 = 25bv5;
+    const s10 : bv5 = 26bv5;
+    const s11 : bv5 = 27bv5;
+    const t3 : bv5 = 28bv5;
+    const t4 : bv5 = 29bv5;
+    const t5 : bv5 = 30bv5;
+    const t6 : bv5 = 31bv5;
+}
+
 module encdec {
     type * = common.*;
     type * = instructions.*;
-
-    const x0 : bv5 = 0bv5;
 
     define get_opcode(inst: inst_t) : bv7 = inst[6:0];
     define get_i_imm(inst : inst_t) : bv12 = inst[31:20];

@@ -32,7 +32,7 @@ module main {
         vobj = bmc_noLTL(5);
         check;
         print_results;
-        vobj.print_cex(step, cpu_0.invalid_inst, cpu_0.pc, imem, cpu_0.regfile);
+        vobj.print_cex(step, cpu_0.exception, cpu_0.pc, imem, cpu_0.regfile);
     }
 }
 

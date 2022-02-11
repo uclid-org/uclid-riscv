@@ -3,6 +3,7 @@ module main {
     type * = common.*;
     define * = common.*;
     type * = instructions.*; // needed to fix enum import bug
+    const * = registers.*;
 
     var imem : mem_t;
     var step : integer;
@@ -21,29 +22,25 @@ module main {
         next (cpu_0);
         case
             (step == 1) : {
-                assert (cpu_0.regfile[11bv5] == 100bv32);
+                assert (cpu_0.regfile[a1] == 100bv32);
             }
             (step == 2) : {
-                assert (cpu_0.regfile[12bv5] == 200bv32);
+                assert (cpu_0.regfile[a2] == 200bv32);
             }
             (step == 3) : {
-                assert (cpu_0.regfile[11bv5] == 236bv32);
+                assert (cpu_0.regfile[a1] == 236bv32);
             }
         esac
         step' = step + 1;
     }
 
-    /*
-    invariant s1 : (cpu_0.pc == 4bv32) ==> (cpu_0.regfile[11bv5] == 100bv32);
-    invariant s2 : (cpu_0.pc == 8bv32) ==> (cpu_0.regfile[12bv5] == 200bv32);
-    invariant s3 : (cpu_0.pc == 12bv32) ==> (cpu_0.regfile[11bv5] == 236bv32);
-    */
+    invariant no_exception : cpu_0.exception == X_NONE;
 
     control {
-        vobj = bmc_noLTL(5); // FIX: why does 'bmc' here not work?
+        vobj = bmc_noLTL(4); // FIX: why does 'bmc' here not work?
         check;
         print_results;
-        vobj.print_cex(step, cpu_0.pc, imem, cpu_0.regfile);
+        vobj.print_cex(step, cpu_0.exception, cpu_0.pc, imem, cpu_0.regfile);
     }
 }
 

@@ -3,6 +3,7 @@ module main {
     type * = common.*;
     type * = instructions.*; // needed to fix enum import bug
     const * = instructions.*;
+    const * = registers.*;
 
     var imem : mem_t;
     var step : integer;
@@ -22,17 +23,19 @@ module main {
         next (cpu_0);
         case
             (step == 3) : {
-                assert (cpu_0.regfile[9bv5] == 100bv32);
+                assert (cpu_0.regfile[s1] == 100bv32);
             }
         esac
         step' = step + 1;
     }
 
+    invariant no_exception : cpu_0.exception == X_NONE;
+
     control {
-        vobj = bmc_noLTL(5); // FIX: why does 'bmc' here not work? 'bmc_noLTL' returns undef without nop at end
+        vobj = bmc_noLTL(4); // FIX: why does 'bmc' here not work? 'bmc_noLTL' returns undef without nop at end
         check;
         print_results;
-        vobj.print_cex(step, cpu_0.invalid_inst, cpu_0.pc, imem, cpu_0.regfile);
+        vobj.print_cex(step, cpu_0.exception, cpu_0.pc, imem, cpu_0.regfile);
     }
 }
 
