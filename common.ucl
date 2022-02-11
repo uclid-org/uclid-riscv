@@ -19,6 +19,8 @@ module common {
         X_INVALID_INST      // Failed to decode instruction
     };
 
+    type exception_t = record { cause : exception_cause_t, epc : pc_t };
+
     define pc_to_mem_addr(pc : pc_t) : mem_word_addr_t = pc[31:2];
 }
 
