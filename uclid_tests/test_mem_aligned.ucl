@@ -50,7 +50,7 @@ module main {
         esac
     }
     
-    invariant no_exception : cpu_0.exception == X_NONE;
+    invariant no_exception : cpu_0.exception.cause == X_NONE;
 
     control {
         vobj = bmc_noLTL(9);

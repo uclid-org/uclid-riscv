@@ -29,7 +29,7 @@ module main {
         step' = step + 1;
     }
 
-    invariant no_exception : cpu_0.exception == X_NONE;
+    invariant no_exception : cpu_0.exception.cause == X_NONE;
 
     control {
         vobj = bmc_noLTL(4); // FIX: why does 'bmc' here not work? 'bmc_noLTL' returns undef without nop at end

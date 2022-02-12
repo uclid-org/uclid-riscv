@@ -1,0 +1,35 @@
+
+module main {
+    type * = common.*;
+    define * = common.*;
+    type * = instructions.*; // needed to fix enum import bug
+
+    var imem : mem_t;
+    var step : integer;
+
+    instance cpu_0 : cpu (imem : (imem));
+
+    init {
+        assume (imem[0bv30] == 0x00000013bv32); // nop
+        assume (imem[1bv30] == 0x0bv32); // INVALID
+        step = 0;
+    }
+
+    next {
+        next (cpu_0);
+        case
+            (step == 1) : {
+                assert (cpu_0.exception.cause == X_INVALID_INST && cpu_0.exception.epc == 4bv32);
+            }
+        esac
+        step' = step + 1;
+    }
+
+    control {
+        vobj = bmc_noLTL(2); // FIX: why does 'bmc' here not work?
+        check;
+        print_results;
+        vobj.print_cex(step, cpu_0.exception, cpu_0.pc, imem, cpu_0.regfile);
+    }
+}
+

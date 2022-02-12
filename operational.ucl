@@ -194,7 +194,7 @@ module cpu {
     }
 
     procedure exec_b(args : btype_t)
-        modifies pc;
+        modifies pc, exception;
     {
         var i : btype_inst_t;
         var b_tgt : pc_t;
@@ -205,15 +205,20 @@ module cpu {
         rs1_val = regfile[args.rs1];
         rs2_val = regfile[args.rs2];
         b_tgt = pc + bv_sign_extend(19, args.imm);
-        case
-            (i == BEQ) : { taken = rs1_val == rs2_val; }
-            (i == BNE) : { taken = rs1_val != rs2_val; }
-            (i == BLT) : { taken = rs1_val < rs2_val; }
-            (i == BGE) : { taken = rs1_val >= rs2_val; }
-            (i == BLTU) : { taken = rs1_val <_u rs2_val; }
-            (i == BGEU) : { taken = rs1_val >=_u rs2_val; }
-        esac
-        pc = if (taken) then b_tgt else pc + 4bv32;
+        if (b_tgt[1:0] != 0bv2) {
+            call set_exception(X_MISALIGNED_INST);
+            pc = pc + 4bv32;
+        } else {
+            case
+                (i == BEQ) : { taken = rs1_val == rs2_val; }
+                (i == BNE) : { taken = rs1_val != rs2_val; }
+                (i == BLT) : { taken = rs1_val < rs2_val; }
+                (i == BGE) : { taken = rs1_val >= rs2_val; }
+                (i == BLTU) : { taken = rs1_val <_u rs2_val; }
+                (i == BGEU) : { taken = rs1_val >=_u rs2_val; }
+            esac
+            pc = if (taken) then b_tgt else pc + 4bv32;
+        }
     }
 
     procedure exec_u(args : utype_t)
@@ -230,17 +235,31 @@ module cpu {
     }
 
     procedure exec_jal(args : jal_t)
-        modifies regfile, pc;
+        modifies regfile, pc, exception;
     {
-        call do_reg_write(args.rd, pc + 4bv32);
-        pc = pc + bv_sign_extend(11, args.imm);
+        var tgt_pc : pc_t;
+        tgt_pc = pc + bv_sign_extend(11, args.imm);
+        if (tgt_pc[1:0] != 0bv2) {
+            call set_exception(X_MISALIGNED_INST);
+            pc = pc + 4bv32;
+        } else {
+            call do_reg_write(args.rd, pc + 4bv32);
+            pc = tgt_pc;
+        }
     }
 
     procedure exec_jalr(args : jalr_t)
-        modifies regfile, pc;
+        modifies regfile, pc, exception;
     {
-        call do_reg_write(args.rd, pc + 4bv32);
-        pc = regfile[args.rs1] + bv_sign_extend(20, args.imm);
+        var tgt_pc : pc_t;
+        tgt_pc = regfile[args.rs1] + bv_sign_extend(20, args.imm);
+        if (tgt_pc[1:0] != 0bv2) {
+            call set_exception(X_MISALIGNED_INST);
+            pc = pc + 4bv32;
+        } else {
+            call do_reg_write(args.rd, pc + 4bv32);
+            pc = tgt_pc;
+        }
     }
     // ===== END INSTRUCTION EXECUTE FUNCTIONS =====
 
@@ -437,7 +456,12 @@ module sanity {
             get_opcode(imem[a]) == OPCODE_I_MEM ||
             get_opcode(imem[a]) == OPCODE_I_ARITH ||
             get_opcode(imem[a]) == OPCODE_S ||
-            get_opcode(imem[a]) == OPCODE_R
+            get_opcode(imem[a]) == OPCODE_R ||
+            get_opcode(imem[a]) == OPCODE_B ||
+            get_opcode(imem[a]) == OPCODE_AUIPC ||
+            get_opcode(imem[a]) == OPCODE_LUI ||
+            get_opcode(imem[a]) == OPCODE_JAL ||
+            get_opcode(imem[a]) == OPCODE_JALR
         );
     }
 
