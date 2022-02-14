@@ -1,0 +1,46 @@
+
+module main {
+    type * = common.*;
+    define * = common.*;
+    type * = instructions.*; // needed to fix enum import bug
+    const * = registers.*;
+
+    var imem : mem_t;
+    var step : integer;
+
+    instance cpu_0 : cpu (imem : (imem));
+
+    init {
+        assume (imem[0bv30] == 0x00000013bv32); // nop
+        assume (imem[1bv30] == 0x06400413bv32); // addi s0, x0, 100
+        assume (imem[2bv30] == 0x00000513bv32); // addi a0, x0, 0
+        assume (imem[3bv30] == 0x00000593bv32); // addi a1, x0, 0
+        assume (imem[4bv30] == 0x06300493bv32); // addi s1, x0, 100
+        assume (imem[5bv30] == 0x00941463bv32); // bne  s0, s1, good
+        assume (imem[6bv30] == 0xC1800513bv32); // addi a0, x0, -1000
+        assume (imem[7bv30] == 0x3E800593bv32); // good: addi a1, x0, 1000
+        assume (forall (a : mem_word_addr_t) :: (a > 7bv30 ==> imem[a] == 0x13bv32)); // all else nops
+        step = 0;
+    }
+
+    next {
+        next (cpu_0);
+        case
+            (step == 7) : { // nop, addi x4, b, addi
+                assert (cpu_0.regfile[a1] == 1000bv32);
+            }
+        esac
+        step' = step + 1;
+    }
+
+    invariant no_exception : cpu_0.exception.cause == X_NONE;
+    invariant bad_missed : cpu_0.regfile[a0] == 0bv32;
+
+    control {
+        vobj = bmc_noLTL(8); // FIX: why does 'bmc' here not work?
+        check;
+        print_results;
+        vobj.print_cex(step, cpu_0.exception, cpu_0.pc, imem, cpu_0.regfile);
+    }
+}
+
