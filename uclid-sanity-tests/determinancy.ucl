@@ -33,10 +33,12 @@ module main {
         next (cpu_2);
     }
 
+/*
     invariant eq_exceptions : (cpu_1.exception.cause != X_NONE ==> cpu_1.exception == cpu_2.exception);
-    invariant eq_regs : (cpu_1.exception.cause == X_NONE ==> (forall (r : reg_addr_t) :: cpu_1.regfile[r] == cpu_2.regfile[r]));
+    invariant eq_regs : (forall (r : reg_addr_t) :: cpu_1.regfile[r] == cpu_2.regfile[r]);
     // invariant eq_mem : (forall (a : mem_word_addr_t) :: cpu_1.dmem[a] == cpu_2.dmem[a]);
-    invariant eq_pc : (cpu_1.exception.cause != X_NONE ==> cpu_1.pc == cpu_2.pc);
+    invariant eq_pc : (cpu_1.pc == cpu_2.pc);
+*/
 
     control {
         vobj = bmc(3);

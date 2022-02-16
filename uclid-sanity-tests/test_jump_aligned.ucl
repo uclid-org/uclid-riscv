@@ -4,6 +4,7 @@ module main {
     define * = common.*;
     type * = instructions.*; // needed to fix enum import bug
     const * = registers.*;
+    const * = cpu.*;
 
     var imem : mem_t;
     var step : integer;
@@ -11,16 +12,16 @@ module main {
     instance cpu_0 : cpu (imem : (imem));
 
     init {
-        assume (imem[0bv30] == 0x00000013bv32); // nop
-        assume (imem[1bv30] == 0x00000293bv32); // addi t0, x0, 0
-        assume (imem[2bv30] == 0x00000313bv32); // addi t1, x0, 0
-        assume (imem[3bv30] == 0x06400593bv32); // addi a1, x0, 100
-        assume (imem[4bv30] == 0x0080006Fbv32); // j next_j
-        assume (imem[5bv30] == 0x80000293bv32); // addi t0, x0, -2048
-        assume (imem[6bv30] == 0x0080006Fbv32); // next_j: j end
-        assume (imem[7bv30] == 0x80000313bv32); // addi t1, x0, -2048
-        assume (imem[8bv30] == 0x3E800513bv32); // end: addi a0, x0, 1000
-        assume (forall (a : mem_word_addr_t) :: (a > 8bv30 ==> imem[a] == 0x13bv32)); // all else nops
+        assume (imem[IMEM_PC_START + 0bv30] == 0x00000013bv32); // nop
+        assume (imem[IMEM_PC_START + 1bv30] == 0x00000293bv32); // addi t0, x0, 0
+        assume (imem[IMEM_PC_START + 2bv30] == 0x00000313bv32); // addi t1, x0, 0
+        assume (imem[IMEM_PC_START + 3bv30] == 0x06400593bv32); // addi a1, x0, 100
+        assume (imem[IMEM_PC_START + 4bv30] == 0x0080006Fbv32); // j next_j
+        assume (imem[IMEM_PC_START + 5bv30] == 0x80000293bv32); // addi t0, x0, -2048
+        assume (imem[IMEM_PC_START + 6bv30] == 0x0080006Fbv32); // next_j: j end
+        assume (imem[IMEM_PC_START + 7bv30] == 0x80000313bv32); // addi t1, x0, -2048
+        assume (imem[IMEM_PC_START + 8bv30] == 0x3E800513bv32); // end: addi a0, x0, 1000
+        assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 8bv30) ==> imem[a] == instructions.NOP)); // all else nops
         step = 0;
     }
 
@@ -35,8 +36,8 @@ module main {
     }
 
     invariant no_exception : cpu_0.exception.cause == X_NONE;
-    invariant bad_1_missed : cpu_0.regfile[t0] == 0bv32;
-    invariant bad_2_missed : cpu_0.regfile[t1] == 0bv32;
+    invariant bad_1_missed : step > 1 ==> cpu_0.regfile[t0] == 0bv32;
+    invariant bad_2_missed : step > 2 ==> cpu_0.regfile[t1] == 0bv32;
 
     control {
         vobj = bmc_noLTL(9); // FIX: why does 'bmc' here not work?

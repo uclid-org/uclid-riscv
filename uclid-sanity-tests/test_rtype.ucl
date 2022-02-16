@@ -4,6 +4,7 @@ module main {
     type * = instructions.*; // needed to fix enum import bug
     const * = instructions.*;
     const * = registers.*;
+    const * = cpu.*;
 
     var imem : mem_t;
     var step : integer;
@@ -12,10 +13,10 @@ module main {
 
     init {
         // i2 = { ADDI, 8bv5, 0bv5, 200bv12 }; // record literals don't work :/
-        assume (imem[0bv30] == 0x06400413bv32); // addi s0, x0, 100
-        assume (imem[1bv30] == 0x0C800493bv32); // addi s1, x0, 200
-        assume (imem[2bv30] == 0x408484B3bv32); // sub  s1, s1, s0
-        assume (imem[3bv30] == NOP); // without this nop, it's undet?
+        assume (imem[IMEM_PC_START + 0bv30] == 0x06400413bv32); // addi s0, x0, 100
+        assume (imem[IMEM_PC_START + 1bv30] == 0x0C800493bv32); // addi s1, x0, 200
+        assume (imem[IMEM_PC_START + 2bv30] == 0x408484B3bv32); // sub  s1, s1, s0
+        assume (imem[IMEM_PC_START + 3bv30] == NOP); // without this nop, it's undet?
         step = 0;
     }
 

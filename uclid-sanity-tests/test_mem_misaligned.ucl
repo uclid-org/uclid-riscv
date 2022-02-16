@@ -4,6 +4,7 @@ module main {
     type * = instructions.*; // needed to fix enum import bug
     const * = instructions.*;
     const * = registers.*;
+    const * = cpu.*;
 
     var imem : mem_t;
     var step : integer;
@@ -12,9 +13,9 @@ module main {
 
     init {
         assume (cpu_0.dmem[100bv30] == 0xABCD12F4bv32);
-        assume (imem[0bv30] == 0x19000413bv32); // addi s0, x0, 400
-        assume (imem[1bv30] == 0x00341483bv32); // lh   s1, 3(s0)
-        assume (imem[2bv30] == NOP);
+        assume (imem[IMEM_PC_START + 0bv30] == 0x19000413bv32); // addi s0, x0, 400
+        assume (imem[IMEM_PC_START + 1bv30] == 0x00341483bv32); // lh   s1, 3(s0)
+        assume (imem[IMEM_PC_START + 2bv30] == NOP);
         step = 0;
     }
 
@@ -23,7 +24,7 @@ module main {
         step' = step + 1;
         case
             (step == 1) : { assert (cpu_0.regfile[s0] == 400bv32); }
-            (step == 2) : { assert (cpu_0.exception.cause == X_MISALIGNED_MEM && cpu_0.exception.epc == 4bv32); }
+            (step == 2) : { assert (cpu_0.exception.cause == X_MISALIGNED_MEM && cpu_0.exception.epc == PC_START + 4bv32); }
         esac
     }
 

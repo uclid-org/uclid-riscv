@@ -4,6 +4,7 @@ module main {
     type * = instructions.*; // needed to fix enum import bug
     const * = instructions.*;
     const * = registers.*;
+    const * = cpu.*;
 
     var imem : mem_t;
     var step : integer;
@@ -12,15 +13,15 @@ module main {
 
     init {
         assume (cpu_0.dmem[100bv30] == 0xABCD12F4bv32);
-        assume (imem[0bv30] == 0x19000413bv32); // addi s0, x0, 400
-        assume (imem[1bv30] == 0x00040483bv32); // lb   s1, 0(s0)
-        assume (imem[2bv30] == 0x00144903bv32); // lbu  s2, 1(s0)
-        assume (imem[3bv30] == 0x00241483bv32); // lh   s1, 2(s0)
-        assume (imem[4bv30] == 0x00045483bv32); // lhu  s1, 0(s0)
-        assume (imem[5bv30] == 0x0FF00493bv32); // addi s1, x0, 0xFF
-        assume (imem[6bv30] == 0x009400A3bv32); // sb   s1, 1(s0)
-        assume (imem[7bv30] == 0x00042483bv32); // lw   s1, 0(s0)
-        assume (imem[8bv30] == NOP);
+        assume (imem[IMEM_PC_START + 0bv30] == 0x19000413bv32); // addi s0, x0, 400
+        assume (imem[IMEM_PC_START + 1bv30] == 0x00040483bv32); // lb   s1, 0(s0)
+        assume (imem[IMEM_PC_START + 2bv30] == 0x00144903bv32); // lbu  s2, 1(s0)
+        assume (imem[IMEM_PC_START + 3bv30] == 0x00241483bv32); // lh   s1, 2(s0)
+        assume (imem[IMEM_PC_START + 4bv30] == 0x00045483bv32); // lhu  s1, 0(s0)
+        assume (imem[IMEM_PC_START + 5bv30] == 0x0FF00493bv32); // addi s1, x0, 0xFF
+        assume (imem[IMEM_PC_START + 6bv30] == 0x009400A3bv32); // sb   s1, 1(s0)
+        assume (imem[IMEM_PC_START + 7bv30] == 0x00042483bv32); // lw   s1, 0(s0)
+        assume (imem[IMEM_PC_START + 8bv30] == NOP);
         // step = 0;
     }
 
@@ -29,14 +30,14 @@ module main {
         // step' = step + 1;
         case
             // for some reason, STEP doesn't increment properly in the last cycle
-            (cpu_0.pc == 4bv32) : { assert (cpu_0.regfile[s0] == 400bv32); }
-            (cpu_0.pc == 8bv32) : { assert (cpu_0.regfile[s1] == 0xFFFFFFF4bv32); }
-            (cpu_0.pc == 12bv32) : { assert (cpu_0.regfile[s2] == 0x12bv32); }
-            (cpu_0.pc == 16bv32) : { assert (cpu_0.regfile[s1] == 0xFFFFABCDbv32); }
-            (cpu_0.pc == 20bv32) : { assert (cpu_0.regfile[s1] == 0x12F4bv32); }
-            (cpu_0.pc == 24bv32) : { assert (cpu_0.regfile[s1] == 0xFFbv32); }
-            (cpu_0.pc == 28bv32) : { assert (cpu_0.dmem[100bv30] == 0xABCDFFF4bv32); }
-            (cpu_0.pc == 32bv32) : { assert (cpu_0.regfile[s1] == 0xABCDFFF4bv32); }
+            (cpu_0.pc == PC_START + 4bv32) : { assert (cpu_0.regfile[s0] == 400bv32); }
+            (cpu_0.pc == PC_START + 8bv32) : { assert (cpu_0.regfile[s1] == 0xFFFFFFF4bv32); }
+            (cpu_0.pc == PC_START + 12bv32) : { assert (cpu_0.regfile[s2] == 0x12bv32); }
+            (cpu_0.pc == PC_START + 16bv32) : { assert (cpu_0.regfile[s1] == 0xFFFFABCDbv32); }
+            (cpu_0.pc == PC_START + 20bv32) : { assert (cpu_0.regfile[s1] == 0x12F4bv32); }
+            (cpu_0.pc == PC_START + 24bv32) : { assert (cpu_0.regfile[s1] == 0xFFbv32); }
+            (cpu_0.pc == PC_START + 28bv32) : { assert (cpu_0.dmem[100bv30] == 0xABCDFFF4bv32); }
+            (cpu_0.pc == PC_START + 32bv32) : { assert (cpu_0.regfile[s1] == 0xABCDFFF4bv32); }
             /*
             (step == 1) : { assert (cpu_0.regfile[s0] == 400bv32); }
             (step == 2) : { assert (cpu_0.regfile[s1] == 0xFFFFFFF4bv32); }

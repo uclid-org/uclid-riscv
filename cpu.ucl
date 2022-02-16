@@ -1,11 +1,12 @@
 
-// Very similar to cpu model in example 3.2 of tutorial
+// Structured based off cpu model in example 3.2 of tutorial
 // https://github.com/uclid-org/uclid/blob/master/tutorial/tutorial.pdf
+// and SAIL model
+// https://github.com/riscv/sail-riscv
 module cpu {
     type * = common.*;
     define * = common.*;
     type * = instructions.*;
-    const * = instructions.*;
     define * = instructions.*;
     const * = encdec.*;
     define * = encdec.*;
@@ -15,7 +16,11 @@ module cpu {
     var regfile : regfile_t;
     var pc      : pc_t;
     var exception : exception_t; // placeholder for more complicated trap handling
-    var exit_code : bv32; // should only be set by exit ecalls
+
+    const PC_START : pc_t = 0x80000000bv32;
+    const IMEM_PC_START : mem_word_addr_t = 0x20000000bv30;
+
+    define get_a0() : reg_data_t = regfile[registers.a0]; // a0 contains the exit code for the exit syscall
 
     // ===== BEGIN STATE HELPER FUNCTIONS =====
     procedure set_exception(cause : exception_cause_t)
@@ -424,9 +429,10 @@ module cpu {
     }
 
     init {
-        assume (forall (r : reg_addr_t) :: regfile[r] == 0bv32);
+        // assume (forall (r : reg_addr_t) :: regfile[r] == 0bv32);
         // assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
-        pc = 0bv32;
+        assume (regfile[registers.x0] == 0bv32);
+        pc = PC_START;
         exception.cause = X_NONE; // epc doesn't matter
     }
 

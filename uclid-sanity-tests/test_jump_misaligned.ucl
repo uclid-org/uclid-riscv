@@ -4,6 +4,7 @@ module main {
     define * = common.*;
     type * = instructions.*; // needed to fix enum import bug
     const * = registers.*;
+    const * = cpu.*;
 
     var imem : mem_t;
     var step : integer;
@@ -11,8 +12,8 @@ module main {
     instance cpu_0 : cpu (imem : (imem));
 
     init {
-        assume (imem[0bv30] == 0x00000013bv32); // nop
-        assume (imem[0bv30] == 0xFFFFFbv20 ++ x0 ++ encdec.OPCODE_JAL); // misaligned jal
+        assume (imem[IMEM_PC_START + 0bv30] == 0x00000013bv32); // nop
+        assume (imem[IMEM_PC_START + 1bv30] == 0xFFFFFbv20 ++ x0 ++ encdec.OPCODE_JAL); // misaligned jal
         step = 0;
     }
 
@@ -20,7 +21,7 @@ module main {
         next (cpu_0);
         case
             (step == 2) : {
-                assert (cpu_0.exception.cause == X_MISALIGNED_INST && cpu_0.exception.epc == 4bv32);
+                assert (cpu_0.exception.cause == X_MISALIGNED_INST && cpu_0.exception.epc == PC_START + 4bv32);
             }
         esac
         step' = step + 1;
