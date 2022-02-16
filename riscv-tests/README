@@ -1,0 +1,1 @@
+These tests were generated from the riscv-tests repository (https://github.com/riscv-software-src/riscv-tests/tree/master/isa). Since the default _start function requires support for CSRs and trap handling, we replaced _start (as shown in the included header file).
