@@ -1,0 +1,47 @@
+
+module main {
+    type * = common.*;
+    define * = common.*;
+    type * = instructions.*;
+    define * = instructions.*;
+    const * = instructions.*;
+    const * = encdec.*;
+    define * = encdec.*;
+
+    var imem : mem_t;
+
+    instance cpu_1 : cpu (imem : (imem));
+    instance cpu_2 : cpu (imem : (imem));
+
+    init {
+        // Checks that only implemented instructions are generated
+        assume (forall (a : mem_word_addr_t) ::
+            get_opcode(imem[a]) == OPCODE_I_MEM ||
+            get_opcode(imem[a]) == OPCODE_I_ARITH ||
+            get_opcode(imem[a]) == OPCODE_S ||
+            get_opcode(imem[a]) == OPCODE_R ||
+            get_opcode(imem[a]) == OPCODE_B ||
+            get_opcode(imem[a]) == OPCODE_AUIPC ||
+            get_opcode(imem[a]) == OPCODE_LUI ||
+            get_opcode(imem[a]) == OPCODE_JAL ||
+            get_opcode(imem[a]) == OPCODE_JALR
+        );
+    }
+
+    next {
+        next (cpu_1);
+        next (cpu_2);
+    }
+
+    invariant eq_exceptions : (cpu_1.exception.cause != X_NONE ==> cpu_1.exception == cpu_2.exception);
+    invariant eq_regs : (cpu_1.exception.cause == X_NONE ==> (forall (r : reg_addr_t) :: cpu_1.regfile[r] == cpu_2.regfile[r]));
+    // invariant eq_mem : (forall (a : mem_word_addr_t) :: cpu_1.dmem[a] == cpu_2.dmem[a]);
+    invariant eq_pc : (cpu_1.exception.cause != X_NONE ==> cpu_1.pc == cpu_2.pc);
+
+    control {
+        vobj = bmc(3);
+        check;
+        print_results;
+        vobj.print_cex(cpu_1.exception, cpu_2.exception, cpu_1.pc, cpu_2.pc, imem, cpu_1.regfile, cpu_2.regfile);
+    }
+}
