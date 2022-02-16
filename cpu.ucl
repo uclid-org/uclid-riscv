@@ -267,6 +267,17 @@ module cpu {
             pc = tgt_pc;
         }
     }
+
+    procedure exec_system(args : system_t)
+        modifies exception;
+    {
+        var i : system_inst_t;
+        i = args.inst;
+        case
+            (i == ECALL) : { call set_exception(X_ECALL); }
+            (i == EBREAK) : { call set_exception(X_EBREAK); }
+        esac
+    }
     // ===== END INSTRUCTION EXECUTE FUNCTIONS =====
 
     // Decodes and executes an instruction from IMEM
@@ -423,8 +434,21 @@ module cpu {
                 args.imm = get_i_imm(inst);
                 call exec_jalr(args);
             }
+            (oc == OPCODE_SYS) : {
+                var args : system_t;
+                case
+                    (i_imm == 0bv12) : { args.inst = ECALL; }
+                    (i_imm == 1bv12) : { args.inst = EBREAK; }
+                    default: { call set_exception(X_INVALID_INST); }
+                esac
+                call exec_system(args);
+            }
+            (oc == OPCODE_FENCE) : {
+                var args : fence_t;
+                // nop
+                pc = pc + 4bv32;
+            }
             default : { call set_exception(X_INVALID_INST); }
-            // TODO ecall, ebreak?
         esac
     }
 

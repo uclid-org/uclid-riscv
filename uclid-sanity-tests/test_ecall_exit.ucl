@@ -1,0 +1,35 @@
+
+module main {
+    type * = common.*;
+    type * = instructions.*; // needed to fix enum import bug
+    const * = instructions.*;
+    const * = registers.*;
+    const * = cpu.*;
+
+    var imem : mem_t;
+    var step : integer;
+
+    instance cpu_0 : cpu (imem : (imem));
+
+    init {
+        assume (imem[IMEM_PC_START + 0bv30] == 0x05D00893bv32); // li a7, 93
+        assume (imem[IMEM_PC_START + 1bv30] == 0x06499513bv32); // li a0, 100
+        assume (imem[IMEM_PC_START + 2bv30] == 0x00000073bv32); // ecall
+        step = 0;
+    }
+
+    next {
+        next (cpu_0);
+        step' = step + 1;
+    }
+
+    property[LTL] eventually_exits: G(F(cpu_0.exception.cause == X_ECALL && cpu_0.regfile[a0] == 100bv32));
+
+    control {
+        vobj = bmc(4);
+        check;
+        print_results;
+        vobj.print_cex(step, cpu_0.exception, cpu_0.pc, imem, cpu_0.regfile);
+    }
+}
+

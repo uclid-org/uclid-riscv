@@ -1,0 +1,42 @@
+
+module main {
+    type * = common.*;
+    type * = instructions.*; // needed to fix enum import bug
+    const * = instructions.*;
+    const * = registers.*;
+    const * = cpu.*;
+
+    var imem : mem_t;
+    var step : integer;
+
+    instance cpu_0 : cpu (imem : (imem));
+
+    init {
+        assume (imem[IMEM_PC_START + 0bv30] == 0xFbv32); // fence
+        assume (imem[IMEM_PC_START + 1bv30] == NOP);
+        assume (imem[IMEM_PC_START + 2bv30] == NOP);
+        step = 0;
+    }
+
+    next {
+        next (cpu_0);
+/*
+        case
+            (step == 1) : {
+                assert (cpu_0.pc == PC_START + 4bv32);
+            }
+        esac
+        step' = step + 1;
+*/
+    }
+
+    invariant no_exception : cpu_0.exception.cause == X_NONE;
+
+    control {
+        vobj = bmc_noLTL(2); // FIX: why does 'bmc' here not work? 'bmc_noLTL' returns undef without nop at end
+        check;
+        print_results;
+        vobj.print_cex(step, cpu_0.exception, cpu_0.pc, imem, cpu_0.regfile);
+    }
+}
+

@@ -48,6 +48,12 @@ module instructions {
     type jal_t              = record { rd : bv5, imm : bv21 };
     type jalr_t             = record { rd : bv5, rs1 : bv5, imm : bv12 };
 
+    type system_inst_t      = enum { ECALL, EBREAK };
+    type system_t           = record { inst : system_inst_t };
+
+    // For now, fences are treated as a nop
+    type fence_t            = record { rd : bv5, rs1 : bv5 };
+
     const NOP : inst_t      = 0x13bv32;
 }
 
@@ -136,6 +142,7 @@ module encdec {
     define get_rd(inst : inst_t) : reg_addr_t = inst[11:7];
     define get_f3(inst : inst_t) : bv3 = inst[14:12];
     define get_f7(inst : inst_t) : bv7 = inst[31:25];
+    define get_f12(inst : inst_t) : bv12 = inst[31:20];
 
     procedure encode_itype_arith(args : itype_arith_t)
         returns (inst : inst_t)
@@ -195,6 +202,25 @@ module encdec {
         inst = f7 ++ args.rs2 ++ args.rs1 ++ f3 ++ args.rd ++ OPCODE_R;
     }
 
+    procedure encode_system(args : system_t)
+        returns (inst : inst_t)
+    {
+        var f12 : bv12;
+        var i : system_inst_t;
+        i = args.inst;
+        case
+            (i == ECALL) : { f12 = 0bv12; }
+            (i == EBREAK) : { f12 = 1bv12; }
+        esac
+        inst = f12 ++ 0bv13 ++ OPCODE_SYS;
+    }
+
+    procedure encode_fence(args : fence_t)
+        returns (inst : inst_t)
+    {
+        inst = 0bv12 ++ args.rs1 ++ F3_FENCE ++ args.rd ++ OPCODE_FENCE;
+    }
+
     const OPCODE_I_MEM      : bv7 = 0b0000011bv7;
     const OPCODE_I_ARITH    : bv7 = 0b0010011bv7;
     const OPCODE_R          : bv7 = 0b0110011bv7;
@@ -204,6 +230,8 @@ module encdec {
     const OPCODE_LUI        : bv7 = 0b0110111bv7;
     const OPCODE_JAL        : bv7 = 0b1101111bv7;
     const OPCODE_JALR       : bv7 = 0b1100111bv7;
+    const OPCODE_SYS        : bv7 = 0b1110011bv7;
+    const OPCODE_FENCE      : bv7 = 0b0001111bv7;
 
     // ===== BEGIN FUNCT3 DEFINITIONS =====
     const F3_ADD    : bv3 = 0b000bv3;
@@ -241,5 +269,10 @@ module encdec {
     const F3_BGE    : bv3 = 0b101bv3;    
     const F3_BLTU   : bv3 = 0b110bv3;    
     const F3_BGEU   : bv3 = 0b111bv3;    
+
+    const F3_ECALL  : bv3 = 0b000bv3;
+    const F3_EBREAK : bv3 = 0b000bv3;
+
+    const F3_FENCE  : bv3 = 0b000bv3;
     // ===== END FUNCT3 DEFINITIONS =====
 }
