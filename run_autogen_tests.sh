@@ -6,7 +6,7 @@ python3 gen_riscv_test_ucl.py
 mkdir -p results/
 
 for F in autogen-riscv-tests/* ; do
-    uclid common.ucl cpu.ucl "$F" > results/$(basename "$F" | cut -d. -f1) # | grep FAIL
+    uclid common.ucl cpu.ucl "$F" | tee results/$(basename "$F" | cut -d. -f1) # | grep FAIL
 done
 
 # https://stackoverflow.com/questions/356100/
