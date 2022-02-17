@@ -1,0 +1,41 @@
+
+module main {
+    type * = common.*;
+    define * = common.*;
+    type * = instructions.*; // needed to fix enum import bug
+    const * = registers.*;
+    const * = cpu.*;
+
+    var imem : mem_t;
+    var step : integer;
+
+    instance cpu_0 : cpu (imem : (imem));
+
+    init {
+        assume (imem[IMEM_PC_START + 0bv30] == 0x00000013bv32); // nop
+        assume (imem[IMEM_PC_START + 1bv30] == 0x00036097bv32); // auipc ra, 54
+        assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 1bv30) ==> imem[a] == instructions.NOP)); // all else nops
+        step = 0;
+    }
+
+    next {
+        next (cpu_0);
+        case
+            (step == 2) : { // nop, addi x3, j, j, addi
+                // 0x36000 = 54 << 12
+                assert (cpu_0.regfile[ra] == PC_START + 4bv32 + 0x36000bv32);
+            }
+        esac
+        step' = step + 1;
+    }
+
+    invariant no_exception : cpu_0.exception.cause == X_NONE;
+
+    control {
+        vobj = bmc_noLTL(3); // FIX: why does 'bmc' here not work?
+        check;
+        print_results;
+        vobj.print_cex(step, cpu_0.exception, cpu_0.pc, imem, cpu_0.regfile);
+    }
+}
+

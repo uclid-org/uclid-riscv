@@ -1,30 +1,51 @@
 #!/usr/bin/env python3
+# TODO make each test case a separate file
 
 """
 Generates a uclid module from a corresponding elf file form riscv-tests.
 """
 
-import subprocess
+from collections import defaultdict
 from dataclasses import dataclass
 from io import StringIO
 import os
 import re
+import subprocess
 import textwrap
 
 OBJDUMP = "riscv64-unknown-elf-objdump"
 # Exactly 8 hex digits, followed by a colon, then instruction hex, then the rest
 TEXT_LINE_RE = re.compile("^([0-9a-f]{8}):\s+([0-9a-f]{8})\s+(.*)$")
+TEXT_LABEL_RE = re.compile("^([0-9a-f]{8}) <([a-zA-Z][_0-9a-zA-Z]*)>:")
 # This output comes from objdump -s instead of objdump -D
 DATA_LINE_RE = re.compile("([0-9a-f]{8})\s+" * 5)
 
+@dataclass
+class ImemEntry:
+    byte_addr: int
+    inst_str: str
+    comment: str
+
+    def to_assume(self) -> str:
+        inst_pc = "0x{:X}bv30".format(self.byte_addr >> 2)
+        inst_hex = "0x" + self.inst_str.upper() + "bv32"
+        return f"assume (imem[{inst_pc}] == {inst_hex}); // {self.byte_addr:X}: {self.comment}"
+
 def parse_elf(elf_path):
-    inst_count = 0
-    init_lines = []
     print("parsing file:", elf_path)
-    text_p = subprocess.run([OBJDUMP, "-d", "-j", ".text.init", elf_path], stdout=subprocess.PIPE, check=True)
-    curr_section = ""
-    has_data = False
+    text_p = subprocess.run([OBJDUMP, "-D", elf_path], stdout=subprocess.PIPE, check=True)
     reader = StringIO(text_p.stdout.decode("utf-8"))
+    curr_section = ""
+    curr_label = ""
+    has_data = False
+    # Each section that represents a test case gets its own file
+    tests = defaultdict(list)
+    start_insts = []
+    fail_insts = []
+    pass_insts = []
+    fail_addr = None
+    pass_addr = None
+    pass_ecall_addr = None
     for line in reader.readlines():
         stripped = line.strip()
         if stripped.startswith("Disassembly of section "):
@@ -32,21 +53,33 @@ def parse_elf(elf_path):
             curr_section = stripped.split()[-1][:-1]
         elif curr_section == ".text.init":
             m = re.match(TEXT_LINE_RE, stripped)
+            m2 = re.match(TEXT_LABEL_RE, stripped)
             if m:
-                inst_pc = "0x" + "{:X}".format(int(m.group(1), 16) >> 2) + "bv30"
-                inst_hex = "0x" + m.group(2).upper() + "bv32"
                 inst_comment = m.group(3).strip().replace("\t", " ").replace(",", ", ")
-                init_lines.append(f"assume (imem[{inst_pc}] == {inst_hex}); // {inst_comment}")
-                inst_count += 1
-            elif stripped:
-                init_lines.append("// " + stripped)
+                new_entry = ImemEntry(int(m.group(1), 16), m.group(2).upper(), inst_comment)
+                if curr_label.startswith("test_"):
+                    tests[curr_label].append(new_entry)
+                elif curr_label == "fail":
+                    fail_insts.append(new_entry)
+                elif curr_label == "pass":
+                    pass_insts.append(new_entry)
+                    if new_entry.inst_str == "00000073":
+                        pass_ecall_addr = new_entry.byte_addr
+            elif m2:
+                label_addr_i = int(m2.group(1), 16)
+                curr_label = m2.group(2)
+                if curr_label == "pass":
+                    pass_addr = label_addr_i
+                elif curr_label == "fail":
+                    fail_addr = label_addr_i
         elif curr_section == ".data":
             has_data = True            
-    init_lines.append(
-        f"assume (forall (a : mem_word_addr_t) :: (a < IMEM_PC_START || a > IMEM_PC_START + {inst_count}bv30) ==> imem[a] == instructions.NOP);"
-    )
+    assert fail_addr is not None, "Could not find <fail> label"
+    assert pass_addr is not None, "Could not find <pass> label"
+    assert pass_addr is not None, "Could not find ecall instruction in <pass> label"
     reader.close()
     # For some reason objdump -D doesn't show all data, so we need to do a second pass
+    data_lines = []
     if has_data:
         data_p = subprocess.run([OBJDUMP, "-s", "-j", ".data", elf_path], stdout=subprocess.PIPE, check=True)
         started_data = False
@@ -58,50 +91,80 @@ def parse_elf(elf_path):
             elif started_data:
                 m = re.match(DATA_LINE_RE, stripped)
                 if m:
-                    starting_addr_i = int(m.group(0), 16) >> 2
-                    words = ["0x" + m.group(i).upper() + "bv32" for i in range(1, 5)]
+                    starting_addr_i = int(m.group(1), 16) >> 2
+                    words = ["0x" + m.group(i).upper() + "bv32" for i in range(2, 6)]
                     for i, data in enumerate(words):
-                        init_lines.append(f"assume (dmem[0x{'{:X}'.format(starting_addr_i + i)}bv30] == {data});")
+                        data_lines.append(f"assume (cpu_0.dmem[0x{'{:X}'.format(starting_addr_i + i)}bv30] == {data});")
         reader.close()
-    init_block = '\n'.join(init_lines)
-    s = textwrap.dedent(f"""\
-        // AUTOGENERATED FROM {elf_path} BY {__file__}
-        module main {{
-            type * = common.*;
-            define * = common.*;
-            type * = instructions.*;
-            const * = cpu.*;
-
-            var imem : mem_t;
-
-            instance cpu_0 : cpu (imem : (imem));
-
-            init {{
-{textwrap.indent(init_block, ' ' * 16)}
-            }}
-
-            next {{
-                next (cpu_0);
-                if (cpu_0.exception.cause != X_NONE) {{
-                    // All tests are ended with an ECALL invocation
-                    assert (cpu_0.exception.cause == X_ECALL);
-                    assert (cpu_0.regfile[registers.a0] == 0bv32);
-                }}
-            }}
-
-            // TODO run BMC to check LTL properties
-            property[LTL] eventually_exits: G(F(cpu_0.exception.cause == X_ECALL));
-
-            control {{
-                vobj = bmc({inst_count});
-                check;
-                print_results;
-                vobj.print_cex(cpu_0.pc, cpu_0.exception, cpu_0.regfile);
-            }}
-        }}""")
     os.makedirs("autogen-riscv-tests", exist_ok=True)
-    with open(os.path.join("autogen-riscv-tests", os.path.basename(elf_path) + ".ucl"), "w") as f:
-        f.write(s)
+    tcount = len(tests)
+    PC_START = 0x80000000
+    for i, (t, t_entries) in enumerate(tests.items()):
+        first_addr = t_entries[0].byte_addr
+        # If necessary, add jump instruction to reach first test
+        if first_addr != PC_START:
+            j_dist = first_addr - PC_START
+            j_inst = "{:05X}06F".format(j_dist << 8)
+            t_entries.insert(0, ImemEntry(PC_START, j_inst, f"j {first_addr:X} (AUTOMATICALLY INSERTED)"))
+        # If this is not the last test, add jump instruction to reach <pass> label
+        if i != tcount - 1:
+            # Add new j instruction 1 after the last instruction in the test
+            new_j_pc = t_entries[-1].byte_addr + 4
+            j_dist = pass_addr - new_j_pc
+            j_inst = "{:05X}06F".format(j_dist << 8)
+            t_entries.append(ImemEntry(new_j_pc, j_inst, f"j {pass_addr:X} <pass> (AUTOMATICALLY INSERTED)"))
+        tlines = [e.to_assume() for e in t_entries] + ["// <fail>"] + [e.to_assume() for e in fail_insts] + ["// <pass>"] + [e.to_assume() for e in pass_insts]
+        last_pass_inst_loc = "0x{:X}bv30".format(pass_insts[-1].byte_addr >> 2)
+        tlines.append("// unimp instructions - these should cause X_INVALID_INST if hit")
+        tlines.append(
+            f"assume (forall (a : mem_word_addr_t) :: (a < IMEM_PC_START || a > {last_pass_inst_loc}) ==> imem[a] == instructions.UNIMP);"
+        )
+        # If this is not the last test (which is right before fail/pass), also add a bunch of unimps
+        if i != tcount - 1:
+            tlines.append(
+                    f"assume (forall (a : mem_word_addr_t) :: (a > 0x{t_entries[-1].byte_addr >> 2:X}bv30 && a < 0x{fail_addr >> 2:X}bv30) ==> imem[a] == instructions.UNIMP);"
+            )
+        if data_lines:
+            tlines.append("Data segment")
+            tlines.extend(data_lines)
+        init_block = '\n'.join(tlines)
+        expected_epc = f"0x{pass_ecall_addr:X}bv32"
+        s = textwrap.dedent(f"""\
+            // AUTOGENERATED FROM {elf_path} BY {__file__}
+            // ({i + 1} of {tcount})
+            module main {{
+                type * = common.*;
+                define * = common.*;
+                type * = instructions.*;
+                const * = cpu.*;
+
+                var imem : mem_t;
+
+                instance cpu_0 : cpu (imem : (imem));
+
+                init {{
+{textwrap.indent(init_block, ' ' * 20)}
+                }}
+
+                next {{
+                    next (cpu_0);
+                }}
+
+                // All tests are ended with an ECALL invocation
+                // TODO run BMC to check LTL properties
+                // property[LTL] eventually_exits: G(F(cpu_0.exception.cause == X_ECALL && cpu_0.regfile[registers.a0] == 0bv32));
+                // This technically doesn't check that X_ECALL is eventually reached (we would need LTL properties)
+                invariant exits_ok : cpu_0.exception.cause == X_NONE || (cpu_0.exception.cause == X_ECALL && cpu_0.regfile[registers.a0] == 0bv32 && cpu_0.exception.epc == {expected_epc});
+
+                control {{
+                    vobj = bmc({len(t_entries) + max(len(fail_insts), len(pass_insts))});
+                    check;
+                    print_results;
+                    vobj.print_cex(cpu_0.pc, cpu_0.exception, cpu_0.regfile, cpu_0.dmem);
+                }}
+            }}""")
+        with open(os.path.join("autogen-riscv-tests", os.path.basename(elf_path) + "_" + t + ".ucl"), "w") as f:
+            f.write(s)
 
 if __name__ == "__main__":
     for file in os.listdir("riscv-tests"):

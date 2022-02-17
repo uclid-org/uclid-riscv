@@ -237,6 +237,7 @@ module cpu {
             (i == AUIPC) : { new_rd_val = pc + args.imm; }
             (i == LUI) : { new_rd_val = args.imm; }
         esac
+        call do_reg_write(args.rd, new_rd_val);
         pc = pc + 4bv32;
     }
 
@@ -414,7 +415,7 @@ module cpu {
                 args.imm = get_u_imm(inst);
                 case
                     (oc == OPCODE_AUIPC) : { args.inst = AUIPC; }
-                    (oc == OPCODE_LUI) : { args.inst = AUIPC; }
+                    (oc == OPCODE_LUI) : { args.inst = LUI; }
                     default: { call set_exception(X_INVALID_INST); }
                 esac
                 if (exception.cause != X_INVALID_INST) {
@@ -453,9 +454,9 @@ module cpu {
     }
 
     init {
-        // assume (forall (r : reg_addr_t) :: regfile[r] == 0bv32);
+        assume (forall (r : reg_addr_t) :: regfile[r] == 0bv32);
         // assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
-        assume (regfile[registers.x0] == 0bv32);
+        // assume (regfile[registers.x0] == 0bv32);
         pc = PC_START;
         exception.cause = X_NONE; // epc doesn't matter
     }

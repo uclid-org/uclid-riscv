@@ -11,8 +11,8 @@ module main {
     instance cpu_0 : cpu (imem : (imem));
 
     init {
-        assume (imem[IMEM_PC_START + 0bv30] == 0x00000013bv32); // nop
-        assume (imem[IMEM_PC_START + 1bv30] == 0x0bv32); // INVALID
+        assume (imem[IMEM_PC_START + 0bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 1bv30] == instructions.UNIMP);
         step = 0;
     }
 

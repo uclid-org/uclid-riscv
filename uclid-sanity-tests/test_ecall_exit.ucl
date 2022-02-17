@@ -23,10 +23,11 @@ module main {
         step' = step + 1;
     }
 
-    property[LTL] eventually_exits: G(F(cpu_0.exception.cause == X_ECALL && cpu_0.regfile[a0] == 100bv32));
+    // This technically doesn't check that X_ECALL is eventually reached (we would need LTL properties)
+    invariant exits_ok : cpu_0.exception.cause == X_NONE || (cpu_0.exception.cause == X_ECALL && cpu_0.regfile[registers.a0] == 0bv32 && cpu_0.exception.epc == PC_START + 8bv32);
 
     control {
-        vobj = bmc(4);
+        vobj = bmc_noLTL(4);
         check;
         print_results;
         vobj.print_cex(step, cpu_0.exception, cpu_0.pc, imem, cpu_0.regfile);

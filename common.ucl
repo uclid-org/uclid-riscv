@@ -55,6 +55,7 @@ module instructions {
     type fence_t            = record { rd : bv5, rs1 : bv5 };
 
     const NOP : inst_t      = 0x13bv32;
+    const UNIMP : inst_t    = 0x0bv32; // deliberately raises a trap
 }
 
 module registers {
