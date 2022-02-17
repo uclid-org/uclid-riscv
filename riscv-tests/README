@@ -1,1 +1,5 @@
 These tests were generated from the riscv-tests repository (https://github.com/riscv-software-src/riscv-tests/tree/master/isa). Since the default _start function requires support for CSRs and trap handling, we replaced _start (as shown in the included header file).
+
+Each of these tests may contain multiple test cases, which we split into individual uclid test files for scalability.
+
+All rv32ui-p-* tests are included, except rv32ui-p-simple, which is excluded because it contains only _start.
