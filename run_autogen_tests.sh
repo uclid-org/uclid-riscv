@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-set -ux
+# set -ux
+set -u
 
 python3 gen_riscv_test_ucl.py
 
-mkdir -p results/
 
-for F in autogen-riscv-tests/* ; do
-    uclid common.ucl cpu.ucl "$F" | tee results/$(basename "$F" | cut -d. -f1) # | grep FAIL
+for D in autogen-riscv-tests/* ; do
+    mkdir -p results/$(basename $D)
+    for F in $D/*; do
+        date
+        timeout --signal=KILL 5m uclid common.ucl cpu.ucl "$F" | tee results/$(basename $D)/$(basename "$F" | cut -d. -f1) # | grep FAIL
+    done
 done
 
 # https://stackoverflow.com/questions/356100/

@@ -188,7 +188,7 @@ module cpu {
             (i == SUB) : { new_rd_val = rs1_val - rs2_val; }
             (i == SLL) : { new_rd_val = bv_left_shift(rs2_val, rs1_val); }
             (i == SLT) : { new_rd_val = if (rs1_val < rs2_val) then 1bv32 else 0bv32; }
-            (i == SLTU) : { new_rd_val = if (rs1_val <=_u rs2_val) then 1bv32 else 0bv32; }
+            (i == SLTU) : { new_rd_val = if (rs1_val <_u rs2_val) then 1bv32 else 0bv32; }
             (i == XOR) : { new_rd_val = rs1_val ^ rs2_val; }
             (i == SRL) : { new_rd_val = bv_l_right_shift(rs2_val, rs1_val); }
             (i == SRA) : { new_rd_val = bv_a_right_shift(rs2_val, rs1_val); }
@@ -367,7 +367,7 @@ module cpu {
                     (f3 == F3_SLT) : { args.inst = SLT; }
                     (f3 == F3_SLTU) : { args.inst = SLTU; }
                     (f3 == F3_XOR) : { args.inst = XOR; }
-                    (f3 == F3_SR) : { args.inst = if (f7[5:5] == 0bv1) then SRA else SRL; }
+                    (f3 == F3_SR) : { args.inst = if (f7[5:5] == 0bv1) then SRL else SRA; }
                     (f3 == F3_OR) : { args.inst = OR; }
                     (f3 == F3_AND) : { args.inst = AND; }
                     default: { call set_exception(X_INVALID_INST); }
@@ -455,7 +455,7 @@ module cpu {
 
     init {
         assume (forall (r : reg_addr_t) :: regfile[r] == 0bv32);
-        // assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
+        assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
         // assume (regfile[registers.x0] == 0bv32);
         pc = PC_START;
         exception.cause = X_NONE; // epc doesn't matter
