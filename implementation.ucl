@@ -1,0 +1,611 @@
+// A model of a 3-stage pipelined RISC-V 32-bit cpu that has more implementation details, such as
+// one that might be directly lifted from an RTL design.
+// Based loosely off riscv-mini.
+
+module Alu {
+    type * = common.*;
+
+    const ALU_ADD   : bv4 = 0bv4;
+    const ALU_SUB   : bv4 = 1bv4;
+    const ALU_AND   : bv4 = 2bv4;
+    const ALU_OR    : bv4 = 3bv4;
+    const ALU_XOR   : bv4 = 4bv4;
+    const ALU_SLT   : bv4 = 5bv4;
+    const ALU_SLL   : bv4 = 6bv4;
+    const ALU_SLTU  : bv4 = 7bv4;
+    const ALU_SRL   : bv4 = 8bv4;
+    const ALU_SRA   : bv4 = 9bv4;
+    const ALU_CP_A  : bv4 = 10bv4;
+    const ALU_CP_B  : bv4 = 11bv4;
+    const ALU_XXX   : bv4 = 15bv4; // doesn't matter
+
+    // input a : reg_data_t;
+    // input b : reg_data_t;
+    // input alu_op : bv4;
+    // output out : reg_data_t;
+
+    procedure compute_result(a : reg_data_t, b : reg_data_t, alu_op : bv4)
+        returns (out : reg_data_t) {
+        case
+            (alu_op == ALU_ADD)    : { out = a + b; }
+            (alu_op == ALU_SUB)    : { out = a - b; }
+            (alu_op == ALU_AND)    : { out = a & b; }
+            (alu_op == ALU_OR)     : { out = a | b; }
+            (alu_op == ALU_XOR)    : { out = a ^ b; }
+            (alu_op == ALU_SLT)    : { out = if (a < b) then 1bv32 else 0bv32; }
+            (alu_op == ALU_SLTU)   : { out = if (a <_u b) then 1bv32 else 0bv32; }
+            (alu_op == ALU_SRL)    : { out = bv_l_right_shift(b, a); }
+            (alu_op == ALU_SRA)    : { out = bv_a_right_shift(b, a); }
+            (alu_op == ALU_CP_A)   : { out = a; }
+            (alu_op == ALU_CP_B)   : { out = b; }
+        esac
+    }
+}
+
+module RegFile {
+    type * = common.*;
+
+    /*
+    input rs1       : reg_addr_t;
+    input rs2       : reg_addr_t;
+    input wen       : boolean;
+    input rd        : reg_addr_t;
+    input wdata     : reg_data_t;
+    output rs1_val  : reg_data_t;
+    output rs2_val  : reg_data_t;
+    */
+
+    var regs : regfile_t;
+
+    procedure compute_result(
+        rs1 : reg_addr_t,
+        rs2 : reg_addr_t,
+        wen : boolean,
+        rd : reg_addr_t,
+        wdata : reg_data_t
+    )
+        returns (rs1_val : reg_data_t, rs2_val : reg_data_t)
+        modifies regs;
+    {
+        rs1_val = if (rs1 == registers.x0) then 0bv32 else regs[rs1];
+        rs2_val = if (rs2 == registers.x0) then 0bv32 else regs[rs2];
+        if (wen && rd != registers.x0) {
+            regs[rd] = wdata;
+        }
+    }
+}
+
+module BrCond {
+    type * = common.*;
+
+    const BR_EQ     : bv3 = 0bv3;
+    const BR_NE     : bv3 = 1bv3;
+    const BR_LT     : bv3 = 2bv3;
+    const BR_GE     : bv3 = 3bv3;
+    const BR_LTU    : bv3 = 4bv3;
+    const BR_GEU    : bv3 = 5bv3;
+    const BR_XXX    : bv3 = 7bv3;
+    
+    /*
+    input rs1_val   : reg_data_t;
+    input rs2_val   : reg_data_t;
+    input br_type   : bv3;
+    output taken    : boolean;
+    */
+
+    procedure compute_result(rs1_val : reg_data_t, rs2_val : reg_data_t, br_type : bv3)
+        returns (taken : boolean)
+    {
+        case
+            (br_type == BR_EQ)  : { taken = rs1_val == rs2_val; }
+            (br_type == BR_NE)  : { taken = rs1_val != rs2_val; }
+            (br_type == BR_LT)  : { taken = rs1_val < rs2_val; }
+            (br_type == BR_GE)  : { taken = rs1_val >= rs2_val; }
+            (br_type == BR_LTU) : { taken = rs1_val <_u rs2_val; }
+            (br_type == BR_GEU) : { taken = rs1_val >=_u rs2_val; }
+            default             : { taken = false; }
+        esac
+    }
+}
+
+module ImmGen {
+    type * = common.*;
+    define * = encdec.*;
+    
+    const IMM_I : bv3 = 0bv3;
+    const IMM_S : bv3 = 1bv3;
+    const IMM_B : bv3 = 2bv3;
+    const IMM_U : bv3 = 3bv3;
+    const IMM_J : bv3 = 4bv3;
+    const IMM_XXX : bv3 = 7bv3;
+
+    /*
+    input inst : inst_t;
+    input immsel : bv3;
+    output imm : reg_data_t;
+    */
+    
+    procedure compute_result(inst : inst_t, immsel : bv3)
+        returns (imm : reg_data_t)
+    {
+        case
+            (immsel == IMM_I) : { imm = bv_sign_extend(20, get_i_imm(inst)); }
+            (immsel == IMM_S) : { imm = bv_sign_extend(20, get_s_imm(inst)); }
+            (immsel == IMM_B) : { imm = bv_sign_extend(19, get_b_imm(inst)); }
+            (immsel == IMM_U) : { imm = get_u_imm(inst); }
+            (immsel == IMM_J) : { imm = bv_sign_extend(11, get_j_imm(inst)); }
+        esac
+    }
+}
+
+module control_l {
+    type * = common.*;
+    define * = encdec.*;
+    const * = Alu.*;
+    const * = BrCond.*;
+    const * = ImmGen.*;
+    const * = encdec.*;
+
+    /*
+    input inst          : inst_t;
+    output pc_sel       : bv2;
+    output inst_kill    : boolean; // kills the next instruction in the pipeline
+    output a_sel        : bv1;
+    output b_sel        : bv1;
+    output imm_sel      : bv3;
+    output alu_op       : bv4;
+    output br_type      : bv3;
+    output st_type      : bv2;
+    output ld_type      : bv3;
+    output wb_sel       : bv2;
+    output wb_en        : boolean;
+    output illegal      : boolean;
+    */
+
+    // In rvmini, this is bv2 in order to allow the choice of epc
+    const PC_SEL_PC4    : bv2 = 0bv2;
+    const PC_SEL_ALU    : bv2 = 1bv2;
+    const A_SEL_RS1     : bv1 = 0bv1;
+    const A_SEL_PC      : bv1 = 1bv1;
+    const B_SEL_IMM     : bv1 = 0bv1;
+    const B_SEL_RS2     : bv1 = 1bv1;
+    const ST_SB         : bv2 = 0bv2;
+    const ST_SH         : bv2 = 1bv2;
+    const ST_SW         : bv2 = 2bv2;
+    const ST_XXX        : bv2 = 3bv2;
+    const LD_LB         : bv3 = 0bv3;
+    const LD_LH         : bv3 = 1bv3;
+    const LD_LW         : bv3 = 2bv3;
+    const LD_LBU        : bv3 = 3bv3;
+    const LD_LHU        : bv3 = 4bv3;
+    const LD_XXX        : bv3 = 7bv3;
+    const WB_PC4        : bv2 = 0bv2;
+    const WB_ALU        : bv2 = 1bv2;
+    const WB_MEM        : bv2 = 2bv2;
+
+    input inst          : inst_t;
+    output pc_sel       : bv2;
+    output inst_kill    : boolean; // kills the next instruction in the pipeline
+    output a_sel        : bv1;
+    output b_sel        : bv1;
+    output imm_sel      : bv3;
+    output alu_op       : bv4;
+    output br_type      : bv3;
+    output st_type      : bv2;
+    output ld_type      : bv3;
+    output wb_sel       : bv2;
+    output wb_en        : boolean;
+    output illegal      : boolean;
+
+    type ctrl_sigs_t = record {
+        pc_sel : bv2,
+        inst_kill : boolean,
+        a_sel : bv1,
+        b_sel : bv1,
+        imm_sel : bv3,
+        alu_op : bv4,
+        br_type : bv3,
+        st_type : bv2,
+        ld_type : bv3,
+        wb_sel : bv2,
+        wb_en : boolean,
+        illegal : boolean
+    };
+
+    procedure compute_result(inst : inst_t)
+        returns (c : ctrl_sigs_t)
+    {
+        // Uclid has no mapping construct, so we just do it kind of manually
+        var opcode : bv7;
+        var f3 : bv3;
+        var f7 : bv7;
+        opcode = get_opcode(inst);
+        f3 = get_f3(inst);
+        f7 = get_f7(inst);
+        case
+            (opcode == OPCODE_I_MEM) : {
+                c.pc_sel = PC_SEL_PC4;
+                c.a_sel = A_SEL_RS1;
+                c.b_sel = B_SEL_IMM;
+                c.imm_sel = IMM_I;
+                c.alu_op = ALU_ADD;
+                c.br_type = BR_XXX;
+                c.inst_kill = true;
+                c.st_type = ST_XXX;
+                case
+                    (f3 == F3_LB)  : { c.ld_type = LD_LB; c.illegal = false; }
+                    (f3 == F3_LH)  : { c.ld_type = LD_LH; c.illegal = false; }
+                    (f3 == F3_LW)  : { c.ld_type = LD_LW; c.illegal = false; }
+                    (f3 == F3_LBU) : { c.ld_type = LD_LBU; c.illegal = false; }
+                    (f3 == F3_LHU) : { c.ld_type = LD_LHU; c.illegal = false; }
+                    default        : { c.ld_type = LD_XXX; c.illegal = true; }
+                esac
+                c.wb_sel = WB_MEM;
+                c.wb_en = true;
+            }
+            (opcode == OPCODE_I_ARITH) : {
+                c.pc_sel = PC_SEL_PC4;
+                c.a_sel = A_SEL_RS1;
+                c.b_sel = B_SEL_IMM;
+                c.imm_sel = IMM_I;
+                case
+                    (f3 == F3_ADDI) : { c.alu_op = ALU_ADD; c.illegal = false; }
+                    (f3 == F3_SLLI) : { c.alu_op = ALU_SLL; c.illegal = false; }
+                    (f3 == F3_SLTI) : { c.alu_op = ALU_SLT; c.illegal = false; }
+                    (f3 == F3_SLTIU) : { c.alu_op = ALU_SLTU; c.illegal = false; }
+                    (f3 == F3_XORI) : { c.alu_op = ALU_XOR; c.illegal = false; }
+                    (f3 == F3_SRI && f7[5:5] == 0bv1) : { c.alu_op = ALU_SRL; c.illegal = false; }
+                    (f3 == F3_SRI && f7[5:5] == 1bv1) : { c.alu_op = ALU_SRA; c.illegal = false; }
+                    (f3 == F3_ORI)  : { c.alu_op = ALU_OR; c.illegal = false; }
+                    (f3 == F3_ANDI) : { c.alu_op = ALU_AND; c.illegal = false; }
+                    default : { c.alu_op = ALU_XXX; c.illegal = true; }
+                esac
+                c.br_type = BR_XXX;
+                c.inst_kill = false;
+                c.st_type = ST_XXX;
+                c.ld_type = LD_XXX;
+                c.wb_sel = WB_ALU;
+                c.wb_en = true;
+            }
+            (opcode == OPCODE_R) : {
+                c.pc_sel = PC_SEL_PC4;
+                c.a_sel = A_SEL_RS1;
+                c.b_sel = B_SEL_RS2;
+                c.imm_sel = IMM_XXX;
+                case
+                    (f3 == F3_ADD && f7[5:5] == 0bv1) : { c.alu_op = ALU_ADD; c.illegal = false; }
+                    (f3 == F3_ADD && f7[5:5] == 1bv1) : { c.alu_op = ALU_SUB; c.illegal = false; }
+                    (f3 == F3_SLL) : { c.alu_op = ALU_SLL; c.illegal = false; }
+                    (f3 == F3_SLT) : { c.alu_op = ALU_SLT; c.illegal = false; }
+                    (f3 == F3_SLTU) : { c.alu_op = ALU_SLTU; c.illegal = false; }
+                    (f3 == F3_XOR) : { c.alu_op = ALU_XOR; c.illegal = false; }
+                    (f3 == F3_SR && f7[5:5] == 0bv1) : { c.alu_op = ALU_SRL; c.illegal = false; }
+                    (f3 == F3_SR && f7[5:5] == 1bv1) : { c.alu_op = ALU_SRA; c.illegal = false; }
+                    (f3 == F3_OR)  : { c.alu_op = ALU_OR; c.illegal = false; }
+                    (f3 == F3_AND) : { c.alu_op = ALU_AND; c.illegal = false; }
+                    default : { c.alu_op = ALU_XXX; c.illegal = true; }
+                esac
+                c.br_type = BR_XXX;
+                c.inst_kill = false;
+                c.st_type = ST_XXX;
+                c.ld_type = LD_XXX;
+                c.wb_sel = WB_ALU;
+                c.wb_en = true;
+            }
+            (opcode == OPCODE_S) : {
+                c.pc_sel = PC_SEL_PC4;
+                c.a_sel = A_SEL_RS1;
+                c.b_sel = B_SEL_IMM;
+                c.imm_sel = IMM_S;
+                c.alu_op = ALU_ADD;
+                c.br_type = BR_XXX;
+                c.inst_kill = false;
+                case
+                    (f3 == F3_SB) : { c.st_type = ST_SB; c.illegal = false; }
+                    (f3 == F3_SH) : { c.st_type = ST_SH; c.illegal = false; }
+                    (f3 == F3_SW) : { c.st_type = ST_SW; c.illegal = false; }
+                    default : { c.st_type = ST_XXX; c.illegal = true; }
+                esac
+                c.ld_type = LD_XXX;
+                c.wb_sel = WB_ALU;
+                c.wb_en = false;
+            }
+            (opcode == OPCODE_B) : {
+                c.pc_sel = PC_SEL_PC4;
+                c.a_sel = A_SEL_PC;
+                c.b_sel = B_SEL_IMM;
+                c.imm_sel = IMM_B;
+                c.alu_op = ALU_ADD;
+                case
+                    (f3 == F3_BEQ) : { c.br_type = BR_EQ; c.illegal = false; }
+                    (f3 == F3_BNE) : { c.br_type = BR_NE; c.illegal = false; }
+                    (f3 == F3_BLT) : { c.br_type = BR_LT; c.illegal = false; }
+                    (f3 == F3_BGE) : { c.br_type = BR_GE; c.illegal = false; }
+                    (f3 == F3_BLTU) : { c.br_type = BR_LTU; c.illegal = false; }
+                    (f3 == F3_BGEU) : { c.br_type = BR_GEU; c.illegal = false; }
+                    default : { c.br_type = BR_XXX; c.illegal = true; }
+                esac
+                c.inst_kill = false;
+                c.st_type = ST_XXX;
+                c.ld_type = LD_XXX;
+                c.wb_sel = WB_ALU;
+                c.wb_en = false;
+            }
+            (opcode == OPCODE_AUIPC) : {
+                c.pc_sel = PC_SEL_PC4;
+                c.a_sel = A_SEL_PC;
+                c.b_sel = B_SEL_IMM;
+                c.imm_sel = IMM_U;
+                c.alu_op = ALU_ADD;
+                c.br_type = BR_XXX;
+                c.inst_kill = false;
+                c.st_type = ST_XXX;
+                c.ld_type = LD_XXX;
+                c.wb_sel = WB_ALU;
+                c.wb_en = true;
+            }
+            (opcode == OPCODE_LUI) : {
+                c.pc_sel = PC_SEL_PC4;
+                c.a_sel = A_SEL_PC;
+                c.b_sel = B_SEL_IMM;
+                c.imm_sel = IMM_U;
+                c.alu_op = ALU_CP_B;
+                c.br_type = BR_XXX;
+                c.inst_kill = false;
+                c.st_type = ST_XXX;
+                c.ld_type = LD_XXX;
+                c.wb_sel = WB_ALU;
+                c.wb_en = true;
+            }
+            (opcode == OPCODE_JAL) : {
+                c.pc_sel = PC_SEL_ALU;
+                c.a_sel = A_SEL_PC;
+                c.b_sel = B_SEL_IMM;
+                c.imm_sel = IMM_J;
+                c.alu_op = ALU_ADD;
+                c.br_type = BR_XXX;
+                c.inst_kill = true;
+                c.st_type = ST_XXX;
+                c.ld_type = LD_XXX;
+                c.wb_sel = WB_PC4;
+                c.wb_en = true;
+            }
+            (opcode == OPCODE_JALR) : {
+                c.pc_sel = PC_SEL_ALU;
+                c.a_sel = A_SEL_RS1;
+                c.b_sel = B_SEL_IMM;
+                c.imm_sel = IMM_I;
+                c.alu_op = ALU_ADD;
+                c.br_type = BR_XXX;
+                c.inst_kill = true;
+                c.st_type = ST_XXX;
+                c.ld_type = LD_XXX;
+                c.wb_sel = WB_PC4;
+                c.wb_en = true;
+            }
+            (opcode == OPCODE_SYS) : {
+                c.pc_sel = PC_SEL_PC4;
+                c.a_sel = A_SEL_RS1;
+                c.b_sel = B_SEL_IMM;
+                c.imm_sel = IMM_XXX;
+                c.alu_op = ALU_XXX;
+                c.br_type = BR_XXX;
+                c.inst_kill = false;
+                c.st_type = ST_XXX;
+                c.ld_type = LD_XXX;
+                c.wb_sel = WB_PC4;
+                c.wb_en = false;
+            }
+            (opcode == OPCODE_FENCE) : {
+                c.pc_sel = PC_SEL_PC4;
+                c.a_sel = A_SEL_RS1;
+                c.b_sel = B_SEL_IMM;
+                c.imm_sel = IMM_XXX;
+                c.alu_op = ALU_XXX;
+                c.br_type = BR_XXX;
+                c.inst_kill = false;
+                c.st_type = ST_XXX;
+                c.ld_type = LD_XXX;
+                c.wb_sel = WB_PC4;
+                c.wb_en = false;
+            }
+            default : { c.illegal = true; }
+        esac
+    }
+}
+
+module Datapath {
+    type * = common.*;
+    type ctrl_sigs_t = control_l.ctrl_sigs_t;
+    define * = common.*;
+    define * = encdec.*;
+    const * = control_l.*;
+
+    const PC_START : pc_t = 0x80000000bv32;
+
+    input reset : boolean;
+
+    input imem : mem_t;
+    var dmem : mem_t;
+
+    var started : boolean;
+    // Fetch -> Execute pipeline registers
+    var fe_inst     : inst_t;
+    var fe_pc       : pc_t;
+
+    // Execute -> WB pipeline registers
+    var ew_inst     : inst_t;
+    var ew_pc       : pc_t;
+    var ew_alu      : reg_data_t;
+
+    var fe_ctrl     : ctrl_sigs_t;
+    var ew_ctrl     : ctrl_sigs_t;
+    /*
+    var fe_pc_sel       : bv2;
+    var ew_pc_sel       : bv2;
+    var fe_inst_kill    : boolean;
+    var ew_inst_kill    : boolean; // kills the next instruction in the pipeline
+    var fe_a_sel        : bv1;
+    var fe_b_sel        : bv1;
+    var fe_imm_sel      : bv3;
+    var fe_alu_sel      : bv4;
+    var fe_br_type      : bv3;
+    var fe_st_type      : bv2;
+    var ew_st_type      : bv2;
+    var fe_ld_type      : bv3;
+    var ew_ld_type      : bv3;
+    var fe_wb_sel       : bv2;
+    var ew_wb_sel       : bv2;
+    var fe_wb_en        : boolean;
+    var ew_wb_en        : boolean;
+    var fe_illegal      : boolean;
+    */
+
+    var fe_imm         : reg_data_t;
+    var fe_rs1      : reg_addr_t;
+    var fe_rs2      : reg_addr_t;
+    var ew_rd       : reg_addr_t;
+    var ew_wdata    : reg_data_t;
+    var fe_rs1_val  : reg_data_t;
+    var fe_rs2_val  : reg_data_t;
+    var ew_rs2_val  : reg_data_t;
+    var fe_br_taken : boolean;
+    var ew_br_taken : boolean;
+
+    var fe_alu_a    : reg_data_t;
+    var fe_alu_b    : reg_data_t;
+    var fe_alu_out  : reg_data_t;
+    var ew_alu_out  : reg_data_t;
+
+    instance rf : RegFile ();
+    instance brcond : BrCond ();
+    instance immgen : ImmGen();
+    instance alu : Alu ();
+    instance ctrl : control_l ();
+
+    define should_stall() : boolean = started || ew_ctrl.inst_kill || ew_br_taken;
+
+    procedure calc_mem_read(addr : reg_data_t, ld_type : bv3)
+        returns (new_rd_val : reg_data_t)
+    {
+        var word_addr : mem_word_addr_t;
+        var word_ofs : bv2;
+        var shifted_data : mem_data_t;
+        word_addr = addr[31:2];
+        word_ofs = addr[1:0];
+        // Shift word by appropriate offset
+        // Assumes little endianness (LSB is at byte 0 of word, MSB at byte 3)
+        shifted_data = bv_a_right_shift(bv_left_shift(3bv32, bv_zero_extend(30, word_ofs)), dmem[word_addr]);
+        case
+            (ld_type == LD_LB) : { new_rd_val = bv_sign_extend(24, shifted_data[7:0]); }
+            (ld_type == LD_LBU) : { new_rd_val = bv_zero_extend(24, shifted_data[7:0]); }
+            (ld_type == LD_LH) : { new_rd_val = bv_sign_extend(16, shifted_data[15:0]); }
+            (ld_type == LD_LHU) : { new_rd_val = bv_zero_extend(16, shifted_data[15:0]); }
+            (ld_type == LD_LW) : { new_rd_val = shifted_data; }
+            (ld_type == LD_XXX) : { new_rd_val = 0bv32; }
+        esac
+    }
+
+    procedure calc_mem_write(addr : reg_data_t, st_type : bv2, value : reg_data_t)
+        returns (new_mem_data : mem_data_t)
+    {
+        var word_addr : mem_word_addr_t;
+        var bit_ofs: bv32;
+        var word_ofs : bv2;
+        var old_word : mem_data_t;
+        var new_mem_data : mem_data_t;
+        word_addr = addr[31:2];
+        word_ofs = addr[1:0];
+        bit_ofs = bv_left_shift(3bv32, bv_zero_extend(30, addr[1:0]));
+        old_word = dmem[word_addr];
+        case
+            (st_type == ST_SB) : {
+                old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFbv32));
+                new_mem_data = old_word | bv_left_shift(bit_ofs, value & 0xFFbv32);
+            }
+            (st_type == ST_SH) : {
+                old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFFFbv32));
+                new_mem_data = old_word | bv_left_shift(bit_ofs, value & 0xFFFFbv32);
+            }
+            (st_type == ST_SW) : { new_mem_data = old_word | bv_left_shift(bit_ofs, value); }
+            (st_type == ST_XXX) : { new_mem_data = old_word; }
+        esac
+    }
+
+    procedure do_fetch()
+        modifies started, fe_pc, fe_inst, fe_rs1, fe_rs2, fe_ctrl
+            ;
+    {
+        var npc : pc_t;
+        var pc_p4 : pc_t;
+        var ec : ctrl_sigs_t;
+        ec = ew_ctrl;
+        pc_p4 = fe_pc + 4bv32;
+        started = reset;
+        npc = if (ec.pc_sel == PC_SEL_ALU || ec.br_taken) then ec.alu_out else pc_p4;
+        fe_pc = npc;
+        fe_inst = if (should_stall()) then instructions.NOP else imem[pc_to_mem_addr(npc)];
+        fe_rs1 = get_rs1(fe_inst);
+        fe_rs2 = get_rs2(fe_inst);
+        call (fe_ctrl) = ctrl.compute_next(fe_inst);
+        call (fe_rs1_val, fe_rs2_val) = rf.compute_result(fe_rs1, fe_rs2, ew_wen, ew_rd, ew_wdata);
+    }
+
+    procedure do_execute()
+        modifies ew_pc, ew_inst, ew_alu_out,
+            ew_rs2_val, ew_st_type, ew_rd, ew_wb_sel, ew_wb_en;
+    {
+        var fwd_rs1_val : reg_data_t;
+        var fwd_rs2_val : reg_data_t;
+        var rs1_hazard : boolean;
+        var rs2_hazard : boolean;
+        var load_data : mem_data_t;
+        var fc : ctrl_sigs_t;
+        var ec : ctrl_sigs_t;
+        fc = fe_ctrl;
+        ec = ew_ctrl;
+
+        // alu_a = if (fe_ctrl.a_sel == A_SEL_RS1) then fwd_rs1_val else fe_pc;
+        // alu_b = if (fe_ctrl.a_sel == B_SEL_RS2) then fwd_rs2_val else imm;
+        rs1_hazard = ec.wb_en && (fe_rs1 != 0bv5) && (fe_rs1 == ew_rd);
+        rs2_hazard = ec.wb_en && (fe_rs2 != 0bv5) && (fe_rs2 == ew_rd);
+// TODO call alu_out
+        fwd_rs1_val = if (fe_wb_sel == WB_ALU && rs1_hazard) then ew_alu_out else fe_rs1_val;
+        fwd_rs2_val = if (fe_wb_sel == WB_ALU && rs2_hazard) then ew_alu_out else fe_rs2_val;
+        ew_rd = get_rd(ew_inst);
+        ew_ctrl = fe_ctrl;
+    }
+
+    procedure do_wb()
+        modifies dmem, ew_wdata;
+    {
+        var wb_val : reg_data_t;
+        var store_data : mem_data_t;
+        var load_data : reg_data_t;
+        call (load_data) = calc_mem_read(alu_out, ew_ld_type);
+        case
+            (ew_wb_sel == WB_ALU) : { wb_val = alu_out; }
+            (ew_wb_sel == WB_MEM) : { wb_val = load_data; }
+            (ew_wb_sel == WB_PC4) : { wb_val = ew_pc + 4bv32; }
+        esac
+        call (store_data) = calc_mem_write(alu_out, ew_st_type, ew_rs2_val);
+        ew_wdata = wb_val;
+        if (ew_st_type != ST_XXX) {
+            dmem[alu_out[31:2]] = store_data;
+        }
+    }
+
+    init {
+        fe_pc = PC_START - 4bv32;
+        ew_pc = PC_START - 4bv32;
+        fe_inst = instructions.NOP;
+        ew_inst = instructions.NOP;
+        started = false;
+    }
+
+    next {
+        call do_fetch();
+        call do_execute();
+        call do_wb();
+    }
+}

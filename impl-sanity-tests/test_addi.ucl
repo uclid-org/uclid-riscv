@@ -1,0 +1,90 @@
+
+module main {
+    type * = common.*;
+    define * = common.*;
+    type * = instructions.*; // needed to fix enum import bug
+    const * = registers.*;
+
+    var reset : boolean;
+    var imem : mem_t;
+    var step : integer;
+
+    instance impl : Datapath (reset : (reset), imem : (imem));
+
+    type pipe_state_t = enum { UNSTARTED, WAITING, EXEC, DONE };
+
+    var i_state : pipe_state_t;
+    var shadow_start_pc : pc_t;
+    var shadow_impl_rf : regfile_t;
+
+    const IMEM_PC_START : bv30 = 0x20000000bv30;
+    const PC_START : bv32 = 0x80000000bv32;
+
+    init {
+        reset = false;
+        assume (imem[IMEM_PC_START + 0bv30] == 0x00000013bv32); // nop
+        assume (imem[IMEM_PC_START + 1bv30] == 0x00100513bv32); // addi a0, x0, 1
+        assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 1bv30) ==> imem[a] == instructions.NOP)); // all else nops
+        step = 0;
+        i_state = UNSTARTED;
+    }
+
+    next {
+        reset' = false;
+        case
+            (i_state == UNSTARTED) : {
+                i_state' = WAITING;
+            }
+            (i_state == WAITING) : {
+                if (!(impl.started || impl.fe_ctrl.inst_kill || impl.ew_br_taken) && impl.fe_pc == PC_START + 4bv32) {
+                    shadow_start_pc' = impl.fe_pc;
+                    i_state' = EXEC;
+                }
+            }
+            (i_state == EXEC) : {
+                if (impl.ew_pc == shadow_start_pc) {
+                    i_state' = DONE;
+                    shadow_impl_rf' = impl.rf.regs;
+                }
+            }
+            (i_state == DONE) : {
+                assert (false);
+            }
+        esac
+        next(impl);
+        step' = step + 1;
+//        assert (i_state == WAITING ==> i_state' == EXEC);
+            // assert (i_state == DONE && s_state == DONE);
+    }
+
+    control {
+        vobj = bmc_noLTL(5); // FIX: why does 'bmc' here not work?
+        check;
+        print_results;
+        vobj.print_cex(
+            reset,
+            step,
+            imem,
+            impl.fe_pc,
+            impl.fe_inst,
+            impl.ew_pc,
+            impl.ew_inst,
+            impl.rf.regs,
+            impl.started,
+/*
+            impl.inst_kill,
+            impl.br_taken,
+            impl.fe_rs1,
+            impl.fe_rs2,
+            impl.ew_rd,
+            impl.fe_rs1_val,
+            impl.fe_rs2_val,
+            impl.ew_wdata,
+*/
+            i_state,
+            shadow_start_pc,
+            shadow_impl_rf
+        );
+    }
+}
+
