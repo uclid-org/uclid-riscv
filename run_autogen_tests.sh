@@ -9,6 +9,7 @@ for D in autogen-riscv-tests/* ; do
     mkdir -p results/$(basename $D)
     for F in $D/*; do
         date
+        echo "Starting $F"
         timeout --signal=KILL 5m uclid common.ucl cpu.ucl "$F" | tee results/$(basename $D)/$(basename "$F" | cut -d. -f1) # | grep FAIL
     done
 done

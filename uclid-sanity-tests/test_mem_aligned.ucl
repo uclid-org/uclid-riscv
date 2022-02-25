@@ -22,36 +22,24 @@ module main {
         assume (imem[IMEM_PC_START + 6bv30] == 0x009400A3bv32); // sb   s1, 1(s0)
         assume (imem[IMEM_PC_START + 7bv30] == 0x00042483bv32); // lw   s1, 0(s0)
         assume (imem[IMEM_PC_START + 8bv30] == NOP);
-        // step = 0;
+        step = 0;
     }
 
     next {
         next (cpu_0);
-        // step' = step + 1;
-        case
-            // for some reason, STEP doesn't increment properly in the last cycle
-            (cpu_0.pc == PC_START + 4bv32) : { assert (cpu_0.regfile[s0] == 400bv32); }
-            (cpu_0.pc == PC_START + 8bv32) : { assert (cpu_0.regfile[s1] == 0xFFFFFFF4bv32); }
-            (cpu_0.pc == PC_START + 12bv32) : { assert (cpu_0.regfile[s2] == 0x12bv32); }
-            (cpu_0.pc == PC_START + 16bv32) : { assert (cpu_0.regfile[s1] == 0xFFFFABCDbv32); }
-            (cpu_0.pc == PC_START + 20bv32) : { assert (cpu_0.regfile[s1] == 0x12F4bv32); }
-            (cpu_0.pc == PC_START + 24bv32) : { assert (cpu_0.regfile[s1] == 0xFFbv32); }
-            (cpu_0.pc == PC_START + 28bv32) : { assert (cpu_0.dmem[100bv30] == 0xABCDFFF4bv32); }
-            (cpu_0.pc == PC_START + 32bv32) : { assert (cpu_0.regfile[s1] == 0xABCDFFF4bv32); }
-            /*
-            (step == 1) : { assert (cpu_0.regfile[s0] == 400bv32); }
-            (step == 2) : { assert (cpu_0.regfile[s1] == 0xFFFFFFF4bv32); }
-            (step == 3) : { assert (cpu_0.regfile[s2] == 0x12bv32); }
-            (step == 4) : { assert (cpu_0.regfile[s1] == 0xFFFFABCDbv32); }
-            (step == 5) : { assert (cpu_0.regfile[s1] == 0x12F4bv32); }
-            (step == 6) : { assert (cpu_0.regfile[s1] == 0xFFbv32); }
-            (step == 7) : { assert (cpu_0.dmem[100bv30] == 0xABCDFFF4bv32); }
-            (step == 8) : { assert (cpu_0.regfile[s1] == 0xABCDFFF4bv32); }
-            */
-        esac
+        step' = step + 1;
     }
     
     invariant no_exception : cpu_0.exception.cause == X_NONE;
+    // for some reason, assertions in next {} mess with the step variable
+    invariant s1 : (step == 1) ==> (cpu_0.regfile[s0] == 400bv32);
+    invariant s2 : (step == 2) ==> (cpu_0.regfile[s1] == 0xFFFFFFF4bv32);
+    invariant s3 : (step == 3) ==> (cpu_0.regfile[s2] == 0x12bv32);
+    invariant s4 : (step == 4) ==> (cpu_0.regfile[s1] == 0xFFFFABCDbv32);
+    invariant s5 : (step == 5) ==> (cpu_0.regfile[s1] == 0x12F4bv32);
+    invariant s6 : (step == 6) ==> (cpu_0.regfile[s1] == 0xFFbv32);
+    invariant s7 : (step == 7) ==> (cpu_0.dmem[100bv30] == 0xABCDFFF4bv32);
+    invariant s8 : (step == 8) ==> (cpu_0.regfile[s1] == 0xABCDFFF4bv32);
 
     control {
         vobj = bmc_noLTL(9);

@@ -184,3 +184,4 @@ if __name__ == "__main__":
         filename = os.fsdecode(file)
         if filename.startswith("rv32ui-p-") and "." not in filename:
             parse_elf(os.path.join("riscv-tests", filename))
+

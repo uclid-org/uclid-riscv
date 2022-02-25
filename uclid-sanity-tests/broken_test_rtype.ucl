@@ -15,19 +15,20 @@ module main {
         assume (imem[IMEM_PC_START] == 0x06400413bv32); // addi s0, x0, 100
         assume (imem[IMEM_PC_START + 1bv30] == 0x0C800493bv32); // addi s1, x0, 200
         assume (imem[IMEM_PC_START + 2bv30] == 0x408484B3bv32); // sub  s1, s1, s0
-        // assume (imem[3bv30] == NOP); // removing this NOP breaks things
+        // assume (imem[IMEM_PC_START + 3bv30] == NOP); // removing this NOP breaks things
         step = 0;
     }
 
     next {
         next (cpu_0);
-        case
+        step' = step + 1;
+        /*case
             (step == 3) : {
                 assert (cpu_0.regfile[9bv5] == 100bv32);
             }
-        esac
-        step' = step + 1;
+        esac*/
     }
+    invariant done : (step == 4) ==> cpu_0.regfile[9bv5] == 100bv32;
 
     control {
         vobj = bmc_noLTL(5);
