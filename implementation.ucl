@@ -100,8 +100,8 @@ module control_l {
     const PC_SEL_ALU    : bv2 = 1bv2;
     const A_SEL_RS1     : bv1 = 0bv1;
     const A_SEL_PC      : bv1 = 1bv1;
-    const B_SEL_IMM     : bv1 = 0bv1;
-    const B_SEL_RS2     : bv1 = 1bv1;
+    const B_SEL_RS2     : bv1 = 0bv1;
+    const B_SEL_IMM     : bv1 = 1bv1;
     const ST_SB         : bv2 = 0bv2;
     const ST_SH         : bv2 = 1bv2;
     const ST_SW         : bv2 = 2bv2;
@@ -359,6 +359,7 @@ module Datapath {
 
     var fe_ctrl     : ctrl_sigs_t;
     var ew_ctrl     : ctrl_sigs_t;
+    var ew_imm      : reg_data_t; // used for debugging
     var ew_br_taken : boolean;
     var ew_rd       : reg_addr_t;
     var ew_rs2_val  : reg_data_t;
@@ -448,6 +449,7 @@ module Datapath {
             ew_inst,
             ew_alu_out,
             ew_rs2_val,
+            ew_imm,
             ew_rd,
             ew_br_taken,
             ew_ctrl
@@ -482,6 +484,7 @@ module Datapath {
         ew_pc = fe_pc;
         ew_inst = fe_inst;
         ew_rs2_val = fwd_rs2_val;
+        ew_imm = imm;
         call (ew_alu_out) = alu.compute_result(alu_a, alu_b, fe_ctrl.alu_op);
         ew_rd = get_rd(ew_inst);
         call (ew_br_taken) = brcond.compute_result(fwd_rs1_val, fwd_rs2_val, fe_ctrl.br_type);
@@ -519,8 +522,10 @@ module Datapath {
         ew_br_taken = false;
         call (fe_ctrl) = ctrl.compute_result(fe_inst);
         ew_ctrl = fe_ctrl;
+        ew_rd = registers.x0;
         started = false;
-        assume (regs[registers.x0] == 0bv32);
+        // assume (regs[registers.x0] == 0bv32);
+        assume (forall (a : reg_addr_t) :: regs[a] == 0bv32);
     }
 
     next {
