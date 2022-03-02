@@ -28,6 +28,7 @@ module Alu {
             (alu_op == ALU_OR)     : { out = a | b; }
             (alu_op == ALU_XOR)    : { out = a ^ b; }
             (alu_op == ALU_SLT)    : { out = if (a < b) then 1bv32 else 0bv32; }
+            (alu_op == ALU_SLL)    : { out = bv_left_shift(b, a); }
             (alu_op == ALU_SLTU)   : { out = if (a <_u b) then 1bv32 else 0bv32; }
             (alu_op == ALU_SRL)    : { out = bv_l_right_shift(b, a); }
             (alu_op == ALU_SRA)    : { out = bv_a_right_shift(b, a); }
@@ -349,6 +350,7 @@ module Datapath {
     var regs : regfile_t;
 
     var started : boolean;
+    var illegal : boolean;
     // Fetch -> Execute pipeline registers
     var fe_inst     : inst_t;
     var fe_pc       : pc_t;
@@ -498,7 +500,7 @@ module Datapath {
     }
 
     procedure do_wb()
-        modifies dmem, regs;
+        modifies dmem, regs, illegal;
     {
         var wb_val : reg_data_t;
         var store_data : mem_data_t;
@@ -518,9 +520,11 @@ module Datapath {
         if (ew_ctrl.wb_en && ew_rd != 0bv5) {
             regs[ew_rd] = wb_val;
         }
+        illegal = ew_ctrl.illegal;
     }
 
     init {
+        illegal = false;
         fe_pc = PC_START - 4bv32;
         ew_pc = PC_START - 4bv32;
         fe_inst = instructions.NOP;
