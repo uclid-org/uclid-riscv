@@ -19,11 +19,6 @@ module Alu {
     const ALU_CP_B  : bv4 = 11bv4;
     const ALU_XXX   : bv4 = 15bv4; // doesn't matter
 
-    // input a : reg_data_t;
-    // input b : reg_data_t;
-    // input alu_op : bv4;
-    // output out : reg_data_t;
-
     procedure compute_result(a : reg_data_t, b : reg_data_t, alu_op : bv4)
         returns (out : reg_data_t) {
         case
@@ -42,39 +37,6 @@ module Alu {
     }
 }
 
-module RegFile {
-    type * = common.*;
-
-    /*
-    input rs1       : reg_addr_t;
-    input rs2       : reg_addr_t;
-    input wen       : boolean;
-    input rd        : reg_addr_t;
-    input wdata     : reg_data_t;
-    output rs1_val  : reg_data_t;
-    output rs2_val  : reg_data_t;
-    */
-
-    var regs : regfile_t;
-
-    procedure compute_result(
-        rs1 : reg_addr_t,
-        rs2 : reg_addr_t,
-        wen : boolean,
-        rd : reg_addr_t,
-        wdata : reg_data_t
-    )
-        returns (rs1_val : reg_data_t, rs2_val : reg_data_t)
-        modifies regs;
-    {
-        rs1_val = if (rs1 == registers.x0) then 0bv32 else regs[rs1];
-        rs2_val = if (rs2 == registers.x0) then 0bv32 else regs[rs2];
-        if (wen && rd != registers.x0) {
-            regs[rd] = wdata;
-        }
-    }
-}
-
 module BrCond {
     type * = common.*;
 
@@ -86,13 +48,6 @@ module BrCond {
     const BR_GEU    : bv3 = 5bv3;
     const BR_XXX    : bv3 = 7bv3;
     
-    /*
-    input rs1_val   : reg_data_t;
-    input rs2_val   : reg_data_t;
-    input br_type   : bv3;
-    output taken    : boolean;
-    */
-
     procedure compute_result(rs1_val : reg_data_t, rs2_val : reg_data_t, br_type : bv3)
         returns (taken : boolean)
     {
@@ -119,12 +74,6 @@ module ImmGen {
     const IMM_J : bv3 = 4bv3;
     const IMM_XXX : bv3 = 7bv3;
 
-    /*
-    input inst : inst_t;
-    input immsel : bv3;
-    output imm : reg_data_t;
-    */
-    
     procedure compute_result(inst : inst_t, immsel : bv3)
         returns (imm : reg_data_t)
     {
@@ -146,22 +95,6 @@ module control_l {
     const * = ImmGen.*;
     const * = encdec.*;
 
-    /*
-    input inst          : inst_t;
-    output pc_sel       : bv2;
-    output inst_kill    : boolean; // kills the next instruction in the pipeline
-    output a_sel        : bv1;
-    output b_sel        : bv1;
-    output imm_sel      : bv3;
-    output alu_op       : bv4;
-    output br_type      : bv3;
-    output st_type      : bv2;
-    output ld_type      : bv3;
-    output wb_sel       : bv2;
-    output wb_en        : boolean;
-    output illegal      : boolean;
-    */
-
     // In rvmini, this is bv2 in order to allow the choice of epc
     const PC_SEL_PC4    : bv2 = 0bv2;
     const PC_SEL_ALU    : bv2 = 1bv2;
@@ -182,20 +115,6 @@ module control_l {
     const WB_PC4        : bv2 = 0bv2;
     const WB_ALU        : bv2 = 1bv2;
     const WB_MEM        : bv2 = 2bv2;
-
-    input inst          : inst_t;
-    output pc_sel       : bv2;
-    output inst_kill    : boolean; // kills the next instruction in the pipeline
-    output a_sel        : bv1;
-    output b_sel        : bv1;
-    output imm_sel      : bv3;
-    output alu_op       : bv4;
-    output br_type      : bv3;
-    output st_type      : bv2;
-    output ld_type      : bv3;
-    output wb_sel       : bv2;
-    output wb_en        : boolean;
-    output illegal      : boolean;
 
     type ctrl_sigs_t = record {
         pc_sel : bv2,
@@ -427,6 +346,7 @@ module Datapath {
 
     input imem : mem_t;
     var dmem : mem_t;
+    var regs : regfile_t;
 
     var started : boolean;
     // Fetch -> Execute pipeline registers
@@ -436,48 +356,14 @@ module Datapath {
     // Execute -> WB pipeline registers
     var ew_inst     : inst_t;
     var ew_pc       : pc_t;
-    var ew_alu      : reg_data_t;
 
     var fe_ctrl     : ctrl_sigs_t;
     var ew_ctrl     : ctrl_sigs_t;
-    /*
-    var fe_pc_sel       : bv2;
-    var ew_pc_sel       : bv2;
-    var fe_inst_kill    : boolean;
-    var ew_inst_kill    : boolean; // kills the next instruction in the pipeline
-    var fe_a_sel        : bv1;
-    var fe_b_sel        : bv1;
-    var fe_imm_sel      : bv3;
-    var fe_alu_sel      : bv4;
-    var fe_br_type      : bv3;
-    var fe_st_type      : bv2;
-    var ew_st_type      : bv2;
-    var fe_ld_type      : bv3;
-    var ew_ld_type      : bv3;
-    var fe_wb_sel       : bv2;
-    var ew_wb_sel       : bv2;
-    var fe_wb_en        : boolean;
-    var ew_wb_en        : boolean;
-    var fe_illegal      : boolean;
-    */
-
-    var fe_imm         : reg_data_t;
-    var fe_rs1      : reg_addr_t;
-    var fe_rs2      : reg_addr_t;
-    var ew_rd       : reg_addr_t;
-    var ew_wdata    : reg_data_t;
-    var fe_rs1_val  : reg_data_t;
-    var fe_rs2_val  : reg_data_t;
-    var ew_rs2_val  : reg_data_t;
-    var fe_br_taken : boolean;
     var ew_br_taken : boolean;
-
-    var fe_alu_a    : reg_data_t;
-    var fe_alu_b    : reg_data_t;
-    var fe_alu_out  : reg_data_t;
+    var ew_rd       : reg_addr_t;
+    var ew_rs2_val  : reg_data_t;
     var ew_alu_out  : reg_data_t;
 
-    instance rf : RegFile ();
     instance brcond : BrCond ();
     instance immgen : ImmGen();
     instance alu : Alu ();
@@ -533,7 +419,12 @@ module Datapath {
     }
 
     procedure do_fetch()
-        modifies started, fe_pc, fe_inst, fe_rs1, fe_rs2, fe_ctrl
+        modifies
+            ctrl,
+            started,
+            fe_pc,
+            fe_inst,
+            fe_ctrl
             ;
     {
         var npc : pc_t;
@@ -542,56 +433,81 @@ module Datapath {
         ec = ew_ctrl;
         pc_p4 = fe_pc + 4bv32;
         started = reset;
-        npc = if (ec.pc_sel == PC_SEL_ALU || ec.br_taken) then ec.alu_out else pc_p4;
+        npc = if (ec.pc_sel == PC_SEL_ALU || ew_br_taken) then ew_alu_out else pc_p4;
         fe_pc = npc;
         fe_inst = if (should_stall()) then instructions.NOP else imem[pc_to_mem_addr(npc)];
-        fe_rs1 = get_rs1(fe_inst);
-        fe_rs2 = get_rs2(fe_inst);
-        call (fe_ctrl) = ctrl.compute_next(fe_inst);
-        call (fe_rs1_val, fe_rs2_val) = rf.compute_result(fe_rs1, fe_rs2, ew_wen, ew_rd, ew_wdata);
+        call (fe_ctrl) = ctrl.compute_result(fe_inst);
     }
 
     procedure do_execute()
-        modifies ew_pc, ew_inst, ew_alu_out,
-            ew_rs2_val, ew_st_type, ew_rd, ew_wb_sel, ew_wb_en;
+        modifies
+            brcond,
+            immgen,
+            alu,
+            ew_pc,
+            ew_inst,
+            ew_alu_out,
+            ew_rs2_val,
+            ew_rd,
+            ew_br_taken,
+            ew_ctrl
+            ;
     {
+        var rs1_addr : reg_addr_t;
+        var rs2_addr : reg_addr_t;
+        var rs1_val : reg_data_t;
+        var rs2_val : reg_data_t;
         var fwd_rs1_val : reg_data_t;
         var fwd_rs2_val : reg_data_t;
         var rs1_hazard : boolean;
         var rs2_hazard : boolean;
+        var alu_a : reg_data_t;
+        var alu_b : reg_data_t;
+        var imm : reg_data_t;
         var load_data : mem_data_t;
-        var fc : ctrl_sigs_t;
-        var ec : ctrl_sigs_t;
-        fc = fe_ctrl;
-        ec = ew_ctrl;
 
-        // alu_a = if (fe_ctrl.a_sel == A_SEL_RS1) then fwd_rs1_val else fe_pc;
-        // alu_b = if (fe_ctrl.a_sel == B_SEL_RS2) then fwd_rs2_val else imm;
-        rs1_hazard = ec.wb_en && (fe_rs1 != 0bv5) && (fe_rs1 == ew_rd);
-        rs2_hazard = ec.wb_en && (fe_rs2 != 0bv5) && (fe_rs2 == ew_rd);
-// TODO call alu_out
-        fwd_rs1_val = if (fe_wb_sel == WB_ALU && rs1_hazard) then ew_alu_out else fe_rs1_val;
-        fwd_rs2_val = if (fe_wb_sel == WB_ALU && rs2_hazard) then ew_alu_out else fe_rs2_val;
+        rs1_addr = get_rs1(fe_inst);
+        rs2_addr = get_rs2(fe_inst);
+        rs1_val = regs[rs1_addr];
+        rs2_val = regs[rs2_addr];
+        call (imm) = immgen.compute_result(fe_inst, fe_ctrl.imm_sel);
+        // Check if previously executed instruction writes to one of these registers
+        rs1_hazard = ew_ctrl.wb_en && (rs1_addr != 0bv5) && (rs1_addr == ew_rd);
+        rs2_hazard = ew_ctrl.wb_en && (rs2_addr != 0bv5) && (rs2_addr == ew_rd);
+        fwd_rs1_val = if (ew_ctrl.wb_sel == WB_ALU && rs1_hazard) then ew_alu_out else rs1_val;
+        fwd_rs2_val = if (ew_ctrl.wb_sel == WB_ALU && rs2_hazard) then ew_alu_out else rs2_val;
+        alu_a = if (fe_ctrl.a_sel == A_SEL_RS1) then fwd_rs1_val else fe_pc;
+        alu_b = if (fe_ctrl.a_sel == B_SEL_RS2) then fwd_rs2_val else imm;
+
+        ew_pc = fe_pc;
+        ew_inst = fe_inst;
+        ew_rs2_val = fwd_rs2_val;
+        call (ew_alu_out) = alu.compute_result(alu_a, alu_b, fe_ctrl.alu_op);
         ew_rd = get_rd(ew_inst);
+        call (ew_br_taken) = brcond.compute_result(fwd_rs1_val, fwd_rs2_val, fe_ctrl.br_type);
         ew_ctrl = fe_ctrl;
     }
 
     procedure do_wb()
-        modifies dmem, ew_wdata;
+        modifies dmem, regs;
     {
         var wb_val : reg_data_t;
         var store_data : mem_data_t;
         var load_data : reg_data_t;
-        call (load_data) = calc_mem_read(alu_out, ew_ld_type);
+        var ew_wb_sel : bv2;
+        ew_wb_sel = ew_ctrl.wb_sel;
+        call (load_data) = calc_mem_read(ew_alu_out, ew_ctrl.ld_type);
         case
-            (ew_wb_sel == WB_ALU) : { wb_val = alu_out; }
+            (ew_wb_sel == WB_ALU) : { wb_val = ew_alu_out; }
             (ew_wb_sel == WB_MEM) : { wb_val = load_data; }
             (ew_wb_sel == WB_PC4) : { wb_val = ew_pc + 4bv32; }
         esac
-        call (store_data) = calc_mem_write(alu_out, ew_st_type, ew_rs2_val);
-        ew_wdata = wb_val;
-        if (ew_st_type != ST_XXX) {
-            dmem[alu_out[31:2]] = store_data;
+        call (store_data) = calc_mem_write(ew_alu_out, ew_ctrl.st_type, ew_rs2_val);
+        if (ew_ctrl.st_type != ST_XXX) {
+            dmem[ew_alu_out[31:2]] = store_data;
+        }
+        if (ew_ctrl.wb_en && ew_rd != 0bv5) {
+            regs[ew_rd] = wb_val;
         }
     }
 
@@ -600,7 +516,11 @@ module Datapath {
         ew_pc = PC_START - 4bv32;
         fe_inst = instructions.NOP;
         ew_inst = instructions.NOP;
+        ew_br_taken = false;
+        call (fe_ctrl) = ctrl.compute_result(fe_inst);
+        ew_ctrl = fe_ctrl;
         started = false;
+        assume (regs[registers.x0] == 0bv32);
     }
 
     next {
