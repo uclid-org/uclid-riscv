@@ -24,9 +24,7 @@ module main {
         reset = false;
         assume (imem[IMEM_PC_START + 0bv30] == instructions.NOP);
         assume (imem[IMEM_PC_START + 1bv30] == 0x00100513bv32); // addi a0, x0, 1
-        assume (imem[IMEM_PC_START + 2bv30] == instructions.NOP);
-        assume (imem[IMEM_PC_START + 3bv30] == instructions.NOP);
-        // assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 0bv30) ==> imem[a] == instructions.NOP)); // all else nops
+        assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 1bv30) ==> imem[a] == instructions.NOP)); // all else nops
         step = 0;
         i_state = UNSTARTED;
     }
@@ -57,6 +55,7 @@ module main {
             next(impl);
         }
         step' = step + 1;
+        assert (false);
     }
 
     // Assert statements within next blocks seem to be buggy?
@@ -65,7 +64,7 @@ module main {
     invariant pc_aligned : i_state != DONE ==> impl.fe_pc[1:0] == 0bv2;
 
     control {
-        vobj = bmc_noLTL(5);
+        vobj = bmc_noLTL(2);
         check;
         print_results;
         vobj.print_cex(
