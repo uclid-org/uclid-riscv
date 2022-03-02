@@ -363,6 +363,8 @@ module Datapath {
     var ew_br_taken : boolean;
     var ew_rd       : reg_addr_t;
     var ew_rs2_val  : reg_data_t;
+    var ew_alu_a    : reg_data_t;
+    var ew_alu_b    : reg_data_t;
     var ew_alu_out  : reg_data_t;
 
     instance brcond : BrCond ();
@@ -450,6 +452,8 @@ module Datapath {
             ew_alu_out,
             ew_rs2_val,
             ew_imm,
+            ew_alu_a,
+            ew_alu_b,
             ew_rd,
             ew_br_taken,
             ew_ctrl
@@ -479,12 +483,14 @@ module Datapath {
         fwd_rs1_val = if (ew_ctrl.wb_sel == WB_ALU && rs1_hazard) then ew_alu_out else rs1_val;
         fwd_rs2_val = if (ew_ctrl.wb_sel == WB_ALU && rs2_hazard) then ew_alu_out else rs2_val;
         alu_a = if (fe_ctrl.a_sel == A_SEL_RS1) then fwd_rs1_val else fe_pc;
-        alu_b = if (fe_ctrl.a_sel == B_SEL_RS2) then fwd_rs2_val else imm;
+        alu_b = if (fe_ctrl.b_sel == B_SEL_RS2) then fwd_rs2_val else imm;
 
         ew_pc = fe_pc;
         ew_inst = fe_inst;
         ew_rs2_val = fwd_rs2_val;
         ew_imm = imm;
+        ew_alu_a = alu_a;
+        ew_alu_b = alu_b;
         call (ew_alu_out) = alu.compute_result(alu_a, alu_b, fe_ctrl.alu_op);
         ew_rd = get_rd(ew_inst);
         call (ew_br_taken) = brcond.compute_result(fwd_rs1_val, fwd_rs2_val, fe_ctrl.br_type);

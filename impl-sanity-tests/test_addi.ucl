@@ -14,11 +14,13 @@ module main {
     type pipe_state_t = enum { UNSTARTED, WAITING, EXEC, COMMITTED, DONE };
 
     var i_state : pipe_state_t;
-    var shadow_start_pc : pc_t;
+    var shadow_impl_pc : pc_t;
     var shadow_impl_rf : regfile_t;
 
     const IMEM_PC_START : bv30 = 0x20000000bv30;
     const PC_START : bv32 = 0x80000000bv32;
+
+    const GOAL_PC : bv32 = 0x80000004bv32;
 
     init {
         reset = false;
@@ -26,6 +28,8 @@ module main {
         assume (imem[IMEM_PC_START + 1bv30] == 0x00100513bv32); // addi a0, x0, 1
         assume (imem[IMEM_PC_START + 2bv30] == instructions.NOP);
         assume (imem[IMEM_PC_START + 3bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 4bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 5bv30] == instructions.NOP);
         // assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 0bv30) ==> imem[a] == instructions.NOP)); // all else nops
         step = 0;
         i_state = UNSTARTED;
@@ -38,17 +42,17 @@ module main {
                 i_state' = WAITING;
             }
             (i_state == WAITING) : {
-                if (!(impl.started || impl.fe_ctrl.inst_kill || impl.ew_br_taken) && impl.fe_pc == PC_START + 4bv32) {
-                    shadow_start_pc' = impl.fe_pc;
+                if (!(impl.started || impl.fe_ctrl.inst_kill || impl.ew_br_taken) && impl.fe_pc == GOAL_PC) {
                     i_state' = EXEC;
                 }
             }
             (i_state == EXEC) : {
-                if (impl.ew_pc == shadow_start_pc) {
+                if (impl.ew_pc == GOAL_PC) {
                     i_state' = COMMITTED;
                 }
             }
             (i_state == COMMITTED) : {
+                shadow_impl_pc' = impl.ew_pc;
                 shadow_impl_rf' = impl.regs;
                 i_state' = DONE;
             }
@@ -61,7 +65,7 @@ module main {
 
     // Assert statements within next blocks seem to be buggy?
     invariant reaches_done : step == 5 ==> i_state == DONE;
-    invariant when_done : i_state == DONE ==> shadow_impl_rf[registers.a0] == 1bv32;
+    invariant when_done : i_state == DONE ==> (shadow_impl_rf[registers.a0] == 1bv32 && shadow_impl_pc == GOAL_PC + 4bv32);
     invariant pc_aligned : i_state != DONE ==> impl.fe_pc[1:0] == 0bv2;
 
     control {
@@ -78,24 +82,17 @@ module main {
             impl.ew_pc,
             impl.ew_inst,
             impl.ew_ctrl,
+            impl.ew_imm,
+            impl.ew_alu_a,
+            impl.ew_alu_b,
             impl.ew_br_taken,
             impl.ew_rd,
             impl.ew_rs2_val,
             impl.ew_alu_out,
             impl.regs,
             impl.started,
-/*
-            impl.inst_kill,
-            impl.br_taken,
-            impl.fe_rs1,
-            impl.fe_rs2,
-            impl.ew_rd,
-            impl.fe_rs1_val,
-            impl.fe_rs2_val,
-            impl.ew_wdata,
-*/
             i_state,
-            shadow_start_pc,
+            shadow_impl_pc,
             shadow_impl_rf
         );
     }

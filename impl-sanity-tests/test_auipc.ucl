@@ -16,7 +16,7 @@ module main {
 
     var i_state : pipe_state_t;
     var s_state : pipe_state_t;
-    var shadow_start_pc : pc_t;
+    var shadow_impl_pc : pc_t;
     var shadow_impl_rf : regfile_t;
     var shadow_spec_pc : pc_t;
     var shadow_spec_rf : regfile_t;
@@ -51,29 +51,29 @@ module main {
             }
             (i_state == WAITING) : {
                 if (!(impl.started || impl.fe_ctrl.inst_kill || impl.ew_br_taken) && impl.fe_pc == GOAL_PC) {
-                    shadow_start_pc' = impl.fe_pc;
                     i_state' = EXEC;
                 }
             }
             (i_state == EXEC) : {
-                if (impl.ew_pc == shadow_start_pc) {
+                if (impl.ew_pc == GOAL_PC) {
                     i_state' = COMMITTED;
                 }
             }
             (i_state == COMMITTED) : {
                 shadow_impl_rf' = impl.regs;
+                shadow_impl_pc' = impl.ew_pc;
                 i_state' = DONE;
             }
         esac
         case
             (s_state == UNSTARTED || s_state == WAITING) : {
                 if (spec.pc == GOAL_PC) {
-                    shadow_spec_pc' = spec.pc;
                     s_state' = EXEC;
                 }
             }
             (s_state == EXEC) : {
                 shadow_spec_rf' = spec.regfile;
+                shadow_spec_pc' = spec.pc;
                 s_state' = DONE;
             }
         esac
@@ -94,7 +94,7 @@ module main {
 
     invariant reaches_done : step == 5 ==> (i_state == DONE && s_state == DONE);
     invariant when_done : (i_state == DONE && s_state == DONE) ==>
-        (shadow_start_pc == shadow_spec_pc && shadow_impl_rf == shadow_spec_rf);
+        (shadow_impl_pc == shadow_spec_pc && shadow_impl_rf == shadow_spec_rf);
     invariant pc_aligned : i_state != DONE ==> impl.fe_pc[1:0] == 0bv2;
 
     control {
@@ -120,7 +120,7 @@ module main {
             impl.started,
             i_state,
             s_state,
-            shadow_start_pc,
+            shadow_impl_pc,
             shadow_impl_rf,
             shadow_spec_pc,
             shadow_spec_rf
