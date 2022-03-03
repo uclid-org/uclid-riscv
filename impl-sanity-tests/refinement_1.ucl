@@ -1,0 +1,164 @@
+// Performs refinement checks for all instructions, synthesizing them according to the relevant
+// instructions fields.
+
+module main {
+    type * = common.*;
+    define * = common.*;
+    define * = encdec.*;
+    type * = instructions.*; // needed to fix enum import bug
+    const * = registers.*;
+    const * = encdec.*;
+
+    var reset : boolean;
+    var imem : mem_t;
+    var step : integer;
+
+    instance impl : Datapath (reset : (reset), imem : (imem));
+    instance spec : cpu (imem : (imem));
+
+    instance ec : encdec ();
+
+    type pipe_state_t = enum { UNSTARTED, WAITING, EXEC, COMMITTED, DONE };
+
+    var i_state : pipe_state_t;
+    var s_state : pipe_state_t;
+    var shadow_impl_pc : pc_t;
+    var shadow_impl_rf : regfile_t;
+    var shadow_spec_pc : pc_t;
+    var shadow_spec_rf : regfile_t;
+
+    var test_inst : inst_t; // variable under test
+ 
+    const IMEM_PC_START : bv30 = 0x20000000bv30;
+    const PC_START : bv32 = 0x80000000bv32;
+
+    const GOAL_PC : bv32 = 0x80000004bv32;
+
+    init {
+        // 9 possible instruction types to synthesize
+        var rtype_i : rtype_t;
+        var itype_arith_i : itype_arith_t;
+        var itype_shift_i : itype_shift_t;
+        var itype_mem_i : itype_mem_t;
+        var stype_i : stype_t;
+        var btype_i : btype_t;
+        var utype_i : utype_t;
+        var jal_i : jal_t;
+        var jalr_i : jalr_t;
+        var i_choice : bv4;
+        case
+            (i_choice == 0bv4) : { call (test_inst) = ec.encode_rtype(rtype_i); }
+            (i_choice == 1bv4) : { call (test_inst) = ec.encode_itype_arith(itype_arith_i); }
+            (i_choice == 2bv4) : { call (test_inst) = ec.encode_itype_shift(itype_shift_i); }
+            (i_choice == 3bv4) : { call (test_inst) = ec.encode_itype_mem(itype_mem_i); }
+            (i_choice == 4bv4) : { call (test_inst) = ec.encode_stype(stype_i); }
+            (i_choice == 5bv4) : { call (test_inst) = ec.encode_btype(btype_i); }
+            (i_choice == 6bv4) : { call (test_inst) = ec.encode_utype(utype_i); }
+            (i_choice == 7bv4) : { call (test_inst) = ec.encode_jal(jal_i); }
+            (i_choice == 8bv4) : { call (test_inst) = ec.encode_jalr(jalr_i); }
+            default            : { test_inst = instructions.NOP; }
+        esac
+
+        reset = true;
+        assume (imem[IMEM_PC_START + 0bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 1bv30] == test_inst);
+        assume (imem[IMEM_PC_START + 2bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 3bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 4bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 5bv30] == instructions.NOP);
+
+        // TODO parameterize DMEM and regfile as arguments for model
+        assume (impl.dmem == spec.dmem);
+        // assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 1bv30) ==> imem[a] == instructions.NOP)); // all else nops
+        // assume (forall (a : mem_word_addr_t) :: ((a > IMEM_PC_START + 1bv30) ==> imem[a] == instructions.NOP)); // all else nops
+        step = 0;
+        i_state = UNSTARTED;
+        s_state = UNSTARTED;
+    }
+
+    next {
+        if (reset) {
+            reset' = false;
+        }
+        case
+            (i_state == UNSTARTED) : {
+                i_state' = WAITING;
+            }
+            (i_state == WAITING) : {
+                if (impl.fe_pc == GOAL_PC) {
+                    i_state' = EXEC;
+                }
+            }
+            (i_state == EXEC) : {
+                if (impl.ew_pc == GOAL_PC) {
+                    i_state' = COMMITTED;
+                }
+            }
+            (i_state == COMMITTED) : {
+                shadow_impl_pc' = impl.ew_pc;
+                shadow_impl_rf' = impl.regs;
+                i_state' = DONE;
+            }
+        esac
+        case
+            (s_state == UNSTARTED || s_state == WAITING) : {
+                if (spec.pc == GOAL_PC) {
+                    s_state' = EXEC;
+                }
+            }
+            (s_state == EXEC) : {
+                shadow_spec_pc' = spec.pc;
+                shadow_spec_rf' = spec.regfile;
+                s_state' = DONE;
+            }
+        esac
+        if (i_state != DONE) {
+            next(impl);
+        }
+        if (s_state != DONE) {
+            next(spec);
+        }
+        step' = step + 1;
+    }
+
+    define spec_ok() : boolean = spec.exception.cause == X_NONE;
+
+    invariant reaches_done : (step == 5) ==> (i_state == DONE && s_state == DONE);
+    invariant when_done : (spec_ok() && i_state == DONE && s_state == DONE) ==>
+        (shadow_impl_pc == shadow_spec_pc && shadow_impl_rf == shadow_spec_rf);
+    invariant pc_aligned : (spec_ok() && i_state != DONE) ==> impl.fe_pc[1:0] == 0bv2;
+
+    control {
+        vobj = bmc_noLTL(5); // FIX: why does 'bmc' here not work?
+        check;
+        print_results;
+        vobj.print_cex(
+            reset,
+            step,
+            imem,
+            impl.fe_pc,
+            impl.fe_inst,
+            impl.fe_ctrl,
+            impl.ew_pc,
+            impl.ew_inst,
+            impl.ew_ctrl,
+            impl.ew_imm,
+            impl.ew_br_taken,
+            impl.ew_rd,
+            impl.ew_rs2_val,
+            impl.ew_alu_out,
+            impl.regs,
+            impl.started,
+            impl.illegal,
+            test_inst,
+            i_state,
+            s_state,
+            spec.exception,
+            shadow_impl_pc,
+            shadow_impl_rf,
+            shadow_spec_pc,
+            shadow_spec_rf
+        );
+    }
+}
+

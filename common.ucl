@@ -177,6 +177,23 @@ module encdec {
         inst = f7 ++ args.shamt ++ args.rs1 ++ f3 ++ args.rd ++ OPCODE_I_ARITH;
     }
 
+    procedure encode_itype_mem(args : itype_mem_t)
+        returns (inst : inst_t)
+    {
+        var f3 : bv3;
+        var f7 : bv7;
+        var i : itype_mem_inst_t;
+        i = args.inst;
+        case
+            (i == LB) : { f3 = F3_LB; }
+            (i == LBU) : { f3 = F3_LBU; }
+            (i == LH) : { f3 = F3_LH; }
+            (i == LHU) : { f3 = F3_LHU; }
+            (i == LW) : { f3 = F3_LW; }
+        esac
+        inst = args.imm ++ args.rs1 ++ f3 ++ args.rd ++ OPCODE_I_MEM;
+    }
+
     procedure encode_rtype(args : rtype_t)
         returns (inst : inst_t)
     {
@@ -201,6 +218,64 @@ module encdec {
             f7 = 0bv7;
         }
         inst = f7 ++ args.rs2 ++ args.rs1 ++ f3 ++ args.rd ++ OPCODE_R;
+    }
+
+    procedure encode_stype(args : stype_t)
+        returns (inst : inst_t)
+    {
+        var f3 : bv3;
+        var i : stype_inst_t;
+        i = args.inst;
+        case
+            (i == SB) : { f3 = F3_SB; }
+            (i == SH) : { f3 = F3_SH; }
+            (i == SW) : { f3 = F3_SW; }
+        esac
+        inst = args.imm[11:5] ++ args.rs2 ++ args.rs1 ++ f3 ++ args.imm[4:0] ++ OPCODE_S;
+    }
+
+    procedure encode_btype(args : btype_t)
+        returns (inst : inst_t)
+    {
+        var f3 : bv3;
+        var i : btype_inst_t;
+        i = args.inst;
+        case
+            (i == BEQ) : { f3 = F3_BEQ; }
+            (i == BNE) : { f3 = F3_BNE; }
+            (i == BLT) : { f3 = F3_BLT; }
+            (i == BGE) : { f3 = F3_BGE; }
+            (i == BLTU) : { f3 = F3_BLTU; }
+            (i == BGEU) : { f3 = F3_BGEU; }
+        esac
+        inst = args.imm[12:12] ++ args.imm[10:5] ++ args.rs2 ++ args.rs1 ++ f3 ++ args.imm[4:1] ++ args.imm[11:11] ++ OPCODE_B;
+    }
+
+    procedure encode_utype(args : utype_t)
+        returns (inst : inst_t)
+    {
+        var opcode : bv7;
+        var i : utype_inst_t;
+        i = args.inst;
+        case
+            (i == AUIPC) : { opcode = OPCODE_AUIPC; }
+            (i == LUI) : { opcode = OPCODE_LUI; }
+        esac
+        inst = args.imm[31:12] ++ args.rd ++ opcode;
+    }
+
+    procedure encode_jal(args : jal_t)
+        returns (inst : inst_t)
+    {
+        var imm : bv21;
+        imm = args.imm;
+        inst = imm[20:20] ++ imm[10:1] ++ imm[11:11] ++ imm[19:12] ++ args.rd ++ OPCODE_JAL;
+    }
+
+    procedure encode_jalr(args : jalr_t)
+        returns (inst : inst_t)
+    {
+        inst = args.imm ++ args.rs1 ++ F3_JALR ++ args.rd ++ OPCODE_JALR;
     }
 
     procedure encode_system(args : system_t)
@@ -270,6 +345,8 @@ module encdec {
     const F3_BGE    : bv3 = 0b101bv3;    
     const F3_BLTU   : bv3 = 0b110bv3;    
     const F3_BGEU   : bv3 = 0b111bv3;    
+
+    const F3_JALR   : bv3 = 0b000bv3;
 
     const F3_ECALL  : bv3 = 0b000bv3;
     const F3_EBREAK : bv3 = 0b000bv3;
