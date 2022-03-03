@@ -49,15 +49,10 @@ module main {
 
         assume (imem[IMEM_PC_START + 0bv30] == instructions.NOP);
         assume (imem[IMEM_PC_START + 1bv30] == test_inst);
-        assume (imem[IMEM_PC_START + 2bv30] == instructions.NOP);
-        assume (imem[IMEM_PC_START + 3bv30] == instructions.NOP);
-        assume (imem[IMEM_PC_START + 4bv30] == instructions.NOP);
-        assume (imem[IMEM_PC_START + 5bv30] == instructions.NOP);
+        assume (!(exists (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 1bv30) ==> imem[a] != instructions.NOP))); // all else nops
 
         // TODO parameterize DMEM and regfile as arguments for model
         assume (impl.dmem == spec.dmem);
-        // assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 1bv30) ==> imem[a] == instructions.NOP)); // all else nops
-        // assume (forall (a : mem_word_addr_t) :: ((a > IMEM_PC_START + 1bv30) ==> imem[a] == instructions.NOP)); // all else nops
         step = 0;
         i_state = UNSTARTED;
         s_state = UNSTARTED;
