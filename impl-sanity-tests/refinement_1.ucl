@@ -12,20 +12,23 @@ module main {
     var reset : boolean;
     var imem : mem_t;
     var step : integer;
+    var flush : boolean;
 
-    instance impl : Datapath (reset : (reset), imem : (imem));
+    instance impl : Datapath (reset : (reset), imem : (imem), flush : (flush));
     instance spec : cpu (imem : (imem));
 
     instance ec : encdec ();
 
-    type pipe_state_t = enum { UNSTARTED, WAITING, EXEC, COMMITTED, DONE };
+    type pipe_state_t = enum { UNSTARTED, WAITING, EXEC, COMMIT, DONE };
 
     var i_state : pipe_state_t;
     var s_state : pipe_state_t;
     var shadow_impl_pc : pc_t;
     var shadow_impl_rf : regfile_t;
-    var shadow_spec_pc : pc_t;
-    var shadow_spec_rf : regfile_t;
+    var shadow_spec_pc0 : pc_t;
+    var shadow_spec_pc1 : pc_t;
+    var shadow_spec_rf0 : regfile_t;
+    var shadow_spec_rf1 : regfile_t;
 
     var test_inst : inst_t; // variable under test
  
@@ -35,7 +38,7 @@ module main {
     const GOAL_PC : bv32 = 0x80000004bv32;
 
     init {
-        // 9 possible instruction types to synthesize
+        // randomly generate an instruction
         var rtype_i : rtype_t;
         var itype_arith_i : itype_arith_t;
         var itype_shift_i : itype_shift_t;
@@ -45,7 +48,26 @@ module main {
         var utype_i : utype_t;
         var jal_i : jal_t;
         var jalr_i : jalr_t;
+        // 9 possible instruction types to choose
         var i_choice : bv4;
+        // avoid generating improper alignment memory ops
+        // TODO initial reg value may cause misaligned
+        if (itype_mem_i.inst == LW) {
+            assume (itype_mem_i.imm[1:0] == 0bv2);
+        }
+        if (itype_mem_i.inst == LH || itype_mem_i.inst == LHU) {
+            assume (itype_mem_i.imm[0:0] == 0bv1);
+        }
+        if (stype_i.inst == SW) {
+            assume (stype_i.imm[1:0] == 0bv2);
+        }
+        if (stype_i.inst == SH) {
+            assume (stype_i.imm[0:0] == 0bv1);
+        }
+        // avoid generating misaligned jump targets
+        assume (btype_i.imm[1:0] == 0bv2);
+        assume (jal_i.imm[1:0] == 0bv2);
+        // instruction encoding
         case
             (i_choice == 0bv4) : { call (test_inst) = ec.encode_rtype(rtype_i); }
             (i_choice == 1bv4) : { call (test_inst) = ec.encode_itype_arith(itype_arith_i); }
@@ -60,9 +82,16 @@ module main {
         esac
 
         reset = true;
+        flush = false;
         assume (imem[IMEM_PC_START + 0bv30] == instructions.NOP);
         assume (imem[IMEM_PC_START + 1bv30] == test_inst);
-        assume (!(exists (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 1bv30) ==> imem[a] != instructions.NOP))); // all else nops
+
+        assume (imem[IMEM_PC_START + 2bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 3bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 4bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 5bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 6bv30] == instructions.NOP);
+        // assume (!(exists (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 1bv30) && imem[a] != instructions.NOP))); // all else nops
 
         // TODO parameterize DMEM and regfile as arguments for model
         assume (impl.dmem == spec.dmem);
@@ -86,11 +115,13 @@ module main {
             }
             (i_state == EXEC) : {
                 if (impl.ew_pc == GOAL_PC) {
-                    i_state' = COMMITTED;
+                    flush' = true;
+                    i_state' = COMMIT;
                 }
             }
-            (i_state == COMMITTED) : {
-                shadow_impl_pc' = impl.ew_pc;
+            (i_state == COMMIT) : {
+                flush' = false;
+                shadow_impl_pc' = impl.fe_pc;
                 shadow_impl_rf' = impl.regs;
                 i_state' = DONE;
             }
@@ -102,8 +133,13 @@ module main {
                 }
             }
             (s_state == EXEC) : {
-                shadow_spec_pc' = spec.pc;
-                shadow_spec_rf' = spec.regfile;
+                shadow_spec_pc0' = spec.pc;
+                shadow_spec_rf0' = spec.regfile;
+                s_state' = COMMIT;
+            }
+            (s_state == COMMIT) : {
+                shadow_spec_pc1' = spec.pc;
+                shadow_spec_rf1' = spec.regfile;
                 s_state' = DONE;
             }
         esac
@@ -120,7 +156,9 @@ module main {
 
     invariant reaches_done : (step == 5) ==> (i_state == DONE && s_state == DONE);
     invariant when_done : (spec_ok() && i_state == DONE && s_state == DONE) ==>
-        (shadow_impl_pc == shadow_spec_pc && shadow_impl_rf == shadow_spec_rf);
+        ((shadow_impl_pc == shadow_spec_pc0 && shadow_impl_rf == shadow_spec_rf0) ||
+         (shadow_impl_pc == shadow_spec_pc1 && shadow_impl_rf == shadow_spec_rf1))
+        ;
     invariant pc_aligned : (spec_ok() && i_state != DONE) ==> impl.fe_pc[1:0] == 0bv2;
 
     control {
@@ -128,6 +166,8 @@ module main {
         check;
         print_results;
         vobj.print_cex(
+            test_inst,
+            flush,
             reset,
             step,
             imem,
@@ -145,14 +185,15 @@ module main {
             impl.regs,
             impl.started,
             impl.illegal,
-            test_inst,
             i_state,
             s_state,
             spec.exception,
             shadow_impl_pc,
             shadow_impl_rf,
-            shadow_spec_pc,
-            shadow_spec_rf
+            shadow_spec_pc0,
+            shadow_spec_rf0,
+            shadow_spec_pc1,
+            shadow_spec_rf1
         );
     }
 }

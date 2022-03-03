@@ -88,7 +88,7 @@ module ImmGen {
     }
 }
 
-module control_l {
+module ControlLogic {
     type * = common.*;
     define * = encdec.*;
     const * = Alu.*;
@@ -336,14 +336,17 @@ module control_l {
 
 module Datapath {
     type * = common.*;
-    type ctrl_sigs_t = control_l.ctrl_sigs_t;
+    type ctrl_sigs_t = ControlLogic.ctrl_sigs_t;
     define * = common.*;
     define * = encdec.*;
-    const * = control_l.*;
+    const * = ControlLogic.*;
 
     const PC_START : pc_t = 0x80000000bv32;
 
     input reset : boolean;
+
+    // When this signal is high, updates to state (PC, regs, dmem) will be suspended
+    input flush : boolean;
 
     input imem : mem_t;
     var dmem : mem_t;
@@ -372,7 +375,7 @@ module Datapath {
     instance brcond : BrCond ();
     instance immgen : ImmGen();
     instance alu : Alu ();
-    instance ctrl : control_l ();
+    instance ctrl : ControlLogic ();
 
     define should_stall() : boolean = started || ew_ctrl.inst_kill || ew_br_taken;
 
@@ -439,9 +442,11 @@ module Datapath {
         pc_p4 = fe_pc + 4bv32;
         started = reset;
         npc = if (ec.pc_sel == PC_SEL_ALU || ew_br_taken) then ew_alu_out else pc_p4;
-        fe_pc = npc;
-        fe_inst = if (should_stall()) then instructions.NOP else imem[pc_to_mem_addr(npc)];
-        call (fe_ctrl) = ctrl.compute_result(fe_inst);
+        if (!flush) {
+            fe_pc = npc;
+            fe_inst = if (should_stall()) then instructions.NOP else imem[pc_to_mem_addr(npc)];
+            call (fe_ctrl) = ctrl.compute_result(fe_inst);
+        }
     }
 
     procedure do_execute()
@@ -487,16 +492,18 @@ module Datapath {
         alu_a = if (fe_ctrl.a_sel == A_SEL_RS1) then fwd_rs1_val else fe_pc;
         alu_b = if (fe_ctrl.b_sel == B_SEL_RS2) then fwd_rs2_val else imm;
 
-        ew_pc = fe_pc;
-        ew_inst = fe_inst;
-        ew_rs2_val = fwd_rs2_val;
-        ew_imm = imm;
-        ew_alu_a = alu_a;
-        ew_alu_b = alu_b;
-        call (ew_alu_out) = alu.compute_result(alu_a, alu_b, fe_ctrl.alu_op);
-        ew_rd = get_rd(ew_inst);
-        call (ew_br_taken) = brcond.compute_result(fwd_rs1_val, fwd_rs2_val, fe_ctrl.br_type);
-        ew_ctrl = fe_ctrl;
+        if (!flush) {
+            ew_pc = fe_pc;
+            ew_inst = fe_inst;
+            ew_rs2_val = fwd_rs2_val;
+            ew_imm = imm;
+            ew_alu_a = alu_a;
+            ew_alu_b = alu_b;
+            call (ew_alu_out) = alu.compute_result(alu_a, alu_b, fe_ctrl.alu_op);
+            ew_rd = get_rd(ew_inst);
+            call (ew_br_taken) = brcond.compute_result(fwd_rs1_val, fwd_rs2_val, fe_ctrl.br_type);
+            ew_ctrl = fe_ctrl;
+        }
     }
 
     procedure do_wb()
@@ -514,13 +521,15 @@ module Datapath {
             (ew_wb_sel == WB_PC4) : { wb_val = ew_pc + 4bv32; }
         esac
         call (store_data) = calc_mem_write(ew_alu_out, ew_ctrl.st_type, ew_rs2_val);
-        if (ew_ctrl.st_type != ST_XXX) {
-            dmem[ew_alu_out[31:2]] = store_data;
+        if (!flush) {
+            if (ew_ctrl.st_type != ST_XXX) {
+                dmem[ew_alu_out[31:2]] = store_data;
+            }
+            if (ew_ctrl.wb_en && ew_rd != 0bv5) {
+                regs[ew_rd] = wb_val;
+            }
+            illegal = ew_ctrl.illegal;
         }
-        if (ew_ctrl.wb_en && ew_rd != 0bv5) {
-            regs[ew_rd] = wb_val;
-        }
-        illegal = ew_ctrl.illegal;
     }
 
     init {

@@ -119,26 +119,30 @@ def parse_elf(elf_path):
             t_entries.append(ImemEntry(new_j_pc, j_inst, f"j {pass_addr:X} <pass> (AUTOMATICALLY INSERTED)"))
         tlines = [e.to_assume() for e in t_entries] + ["// <fail>"] + [e.to_assume() for e in fail_insts] + ["// <pass>"] + [e.to_assume() for e in pass_insts]
         last_pass_inst_loc = "0x{:X}bv30".format(pass_insts[-1].byte_addr >> 2)
+
         tlines.append("// unimp instructions - these should cause X_INVALID_INST if hit")
-        # For some reason, using !exists is faster than forall
-        j_to_start = f"assume (!(exists (a : mem_word_addr_t) :: (a > IMEM_PC_START && a < {t_entries[0].byte_addr >> 2:X}bv30) ==> imem[a] != instructions.UNIMP));"
-        end_to_fail = f"assume (!(exists (a : mem_word_addr_t) :: (a > 0x{t_entries[-1].byte_addr >> 2:X}bv30 && a < 0x{fail_addr >> 2:X}bv30) ==> imem[a] != instructions.UNIMP));"
+        # For some reason, using !exists is faster than forall?
+        # FIX: multiple quantifiers over the same array cause trouble?
+        # assume_fmt = "assume (forall (a : mem_word_addr_t) :: (({}) ==> imem[a] != instructions.UNIMP));"
+        assume_fmt = "assume (!(exists (a : mem_word_addr_t) :: (({}) && imem[a] != instructions.UNIMP)));"
+        c_j_to_start = f"(a > IMEM_PC_START && a < 0x{t_entries[1].byte_addr >> 2:X}bv30)"
+        c_end_to_fail = f"(a > 0x{t_entries[-1].byte_addr >> 2:X}bv30 && a < 0x{fail_addr >> 2:X}bv30)"
+        c_past_bounds  = f"(a < IMEM_PC_START || a > {last_pass_inst_loc})"
+        # For all tests, we need to make values outside the first/last instructions unimps
+        clauses = [c_past_bounds]
         if i == 0:
             # For the first test, we only need unimps from the end of the test to the start of <fail>
-            tlines.append(end_to_fail)
+            clauses.append(c_end_to_fail)
         elif i != tcount - 1:
             # For tests that are neither first nor last, we need unimps between the first jump as well
             # as from the last inst of the test to <fail>
-            tlines.append(j_to_start)
-            tlines.append(end_to_fail)
+            clauses.append(c_j_to_start)
+            clauses.append(c_end_to_fail)
         else:
             # For the last test, the final instruction is always immediately before <fail>, so we only
             # need to add unimps from jump to first test case and outside the bounds of instructions
-            tlines.append(j_to_start)
-        # For all tests, we need to make values outside the first/last isntructions unimps
-        tlines.append(
-            f"assume (!(exists (a : mem_word_addr_t) :: (a < IMEM_PC_START || a > {last_pass_inst_loc}) ==> imem[a] != instructions.UNIMP));"
-        )
+            clauses.append(c_j_to_start)
+        tlines.append(assume_fmt.format(" || ".join(clauses)))
 
         if data_lines:
             tlines.append("// Data segment")
