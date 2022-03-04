@@ -1,0 +1,469 @@
+
+// CPU spec that deliberately SHOULD FAIL most sanity tests
+// when an `addi` instruction (needed to set up most tests) is executed, the sum is always computed
+// to be 0
+module cpu {
+    type * = common.*;
+    define * = common.*;
+    type * = instructions.*;
+    define * = instructions.*;
+    const * = encdec.*;
+    define * = encdec.*;
+
+    input imem  : mem_t;
+    var dmem    : mem_t;
+    var regfile : regfile_t;
+    var pc      : pc_t;
+    var exception : exception_t; // placeholder for more complicated trap handling
+
+    const PC_START : pc_t = 0x80000000bv32;
+    const IMEM_PC_START : mem_word_addr_t = 0x20000000bv30;
+
+    define get_a0() : reg_data_t = regfile[registers.a0]; // a0 contains the exit code for the exit syscall
+
+    // ===== BEGIN STATE HELPER FUNCTIONS =====
+    procedure set_exception(cause : exception_cause_t)
+        modifies exception;
+    {
+        exception.cause = cause;
+        exception.epc = pc;
+    }
+
+    procedure do_reg_write(rd : reg_addr_t, value : reg_data_t)
+        modifies regfile;
+    {
+        if (rd != registers.x0) {
+            regfile[rd] = value;
+        }
+    }
+
+    procedure do_mem_read(addr : reg_data_t, width : mem_data_width_t, sext : boolean)
+        returns (new_rd_val : reg_data_t)
+        modifies exception;
+    {
+        var word_addr : mem_word_addr_t;
+        var word_ofs : bv2;
+        var shifted_data : mem_data_t;
+        word_addr = addr[31:2];
+        word_ofs = addr[1:0];
+        // Shift word by appropriate offset
+        // Assumes little endianness (LSB is at byte 0 of word, MSB at byte 3)
+        shifted_data = bv_a_right_shift(bv_left_shift(3bv32, bv_zero_extend(30, word_ofs)), dmem[word_addr]);
+        // Alignment check
+        if ((width == HALF && word_ofs[0:0] != 0bv1) || (width == WORD && word_ofs != 0bv2)) {
+            call set_exception(X_MISALIGNED_MEM);
+        } else {
+            case
+                (width == BYTE) : { new_rd_val = if (sext) then bv_sign_extend(24, shifted_data[7:0]) else bv_zero_extend(24, shifted_data[7:0]); }
+                (width == HALF) : { new_rd_val = if (sext) then bv_sign_extend(16, shifted_data[15:0]) else bv_zero_extend(16, shifted_data[15:0]); }
+                (width == WORD) : { new_rd_val = shifted_data; }
+            esac
+        }
+    }
+
+    procedure do_mem_write(addr : reg_data_t, width : mem_data_width_t, value : reg_data_t)
+        modifies dmem, exception;
+    {
+        // TODO handle alignment
+        var word_addr : mem_word_addr_t;
+        var bit_ofs: bv32;
+        var word_ofs : bv2;
+        var old_word : mem_data_t;
+        var new_mem_data : mem_data_t;
+        word_addr = addr[31:2];
+        word_ofs = addr[1:0];
+        bit_ofs = bv_left_shift(3bv32, bv_zero_extend(30, addr[1:0]));
+        old_word = dmem[word_addr];
+        if ((width == HALF && word_ofs[0:0] != 0bv1) || (width == WORD && word_ofs != 0bv2)) {
+            call set_exception(X_MISALIGNED_MEM);
+        } else {
+            case
+                (width == BYTE) : {
+                    old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFbv32));
+                    new_mem_data = old_word | bv_left_shift(bit_ofs, value & 0xFFbv32);
+                }
+                (width == HALF) : {
+                    old_word = old_word & (~bv_left_shift(bit_ofs, 0xFFFFbv32));
+                    new_mem_data = old_word | bv_left_shift(bit_ofs, value & 0xFFFFbv32);
+                }
+                (width == WORD) : { new_mem_data = old_word | bv_left_shift(bit_ofs, value); }
+            esac
+            dmem[word_addr] = new_mem_data;
+        }
+    }
+
+    // ===== END STATE HELPER FUNCTIONS =====
+
+    // ===== BEGIN INSTRUCTION EXECUTE FUNCTIONS =====
+    procedure exec_i_arith(args : itype_arith_t)
+        modifies regfile, pc;
+    {
+        var imm_ext : reg_data_t;
+        var i : itype_arith_inst_t;
+        var rs1_val : reg_data_t;
+        var new_rd_val : reg_data_t;
+        imm_ext = bv_sign_extend(20, args.imm);
+        i = args.inst;
+        rs1_val = regfile[args.rs1];
+        case
+            (i == ADDI) : { new_rd_val = 0bv32; } // BROKE HERE
+            // FIX: bv_left_shift seems not to type check until it reaches the smt backend
+            (i == SLTI) : { new_rd_val = if (rs1_val < imm_ext) then 1bv32 else 0bv32; }
+            (i == SLTIU) : { new_rd_val = if (rs1_val <_u imm_ext) then 1bv32 else 0bv32; }
+            (i == XORI) : { new_rd_val = rs1_val ^ imm_ext; }
+            (i == ORI) : { new_rd_val = rs1_val | imm_ext; }
+            (i == ANDI) : { new_rd_val = rs1_val & imm_ext; }
+        esac
+        call do_reg_write(args.rd, new_rd_val);
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_i_shift(args : itype_shift_t)
+        modifies regfile, pc;
+    {
+        var shamt_padded : reg_data_t;
+        var i : itype_shift_inst_t;
+        var rs1_val : reg_data_t;
+        var new_rd_val : reg_data_t;
+        shamt_padded = bv_zero_extend(27, args.shamt);
+        i = args.inst;
+        rs1_val = regfile[args.rs1];
+        case
+            (i == SLLI) : { new_rd_val = bv_left_shift(shamt_padded, rs1_val); }
+            (i == SRAI) : { new_rd_val = bv_a_right_shift(shamt_padded, rs1_val); }
+            (i == SRLI) : { new_rd_val = bv_l_right_shift(shamt_padded, rs1_val); }
+        esac
+        call do_reg_write(args.rd, new_rd_val);
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_i_mem(args : itype_mem_t)
+        modifies regfile, pc, exception;
+    {
+        var addr : reg_data_t;
+        var i : itype_mem_inst_t;
+        var new_rd_val : reg_data_t;
+        addr = regfile[args.rs1] + bv_sign_extend(20, args.imm);
+        i = args.inst;
+        case
+            (i == LB) : { call (new_rd_val) = do_mem_read(addr, BYTE, true); }
+            (i == LBU) : { call (new_rd_val) = do_mem_read(addr, BYTE, false); }
+            (i == LH) : { call (new_rd_val) = do_mem_read(addr, HALF, true); }
+            (i == LHU) : { call (new_rd_val) = do_mem_read(addr, HALF, false); }
+            (i == LW) : { call (new_rd_val) = do_mem_read(addr, WORD, true); }
+        esac
+        call do_reg_write(args.rd, new_rd_val);
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_s(args : stype_t)
+        modifies dmem, pc, exception;
+    {
+        // Returns memory value shifted/masked appropriately
+        var addr : reg_data_t;
+        var i : stype_inst_t;
+        addr = regfile[args.rs1] + bv_sign_extend(20, args.imm);
+        i = args.inst;
+        case
+            (i == SB) : { call do_mem_write(addr, BYTE, regfile[args.rs2]); }
+            (i == SH) : { call do_mem_write(addr, HALF, regfile[args.rs2]); }
+            (i == SW) : { call do_mem_write(addr, WORD, regfile[args.rs2]); }
+        esac
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_r(args : rtype_t)
+        modifies regfile, pc;
+    {
+        var i : rtype_inst_t;        
+        var new_rd_val : reg_data_t;
+        var rs1_val : reg_data_t;
+        var rs2_val : reg_data_t;
+        i = args.inst;
+        rs1_val = regfile[args.rs1];
+        rs2_val = regfile[args.rs2];
+        case
+            (i == ADD) : { new_rd_val = rs1_val + rs2_val; }
+            (i == SUB) : { new_rd_val = rs1_val - rs2_val; }
+            (i == SLL) : { new_rd_val = bv_left_shift(rs2_val, rs1_val); }
+            (i == SLT) : { new_rd_val = if (rs1_val < rs2_val) then 1bv32 else 0bv32; }
+            (i == SLTU) : { new_rd_val = if (rs1_val <_u rs2_val) then 1bv32 else 0bv32; }
+            (i == XOR) : { new_rd_val = rs1_val ^ rs2_val; }
+            (i == SRL) : { new_rd_val = bv_l_right_shift(rs2_val, rs1_val); }
+            (i == SRA) : { new_rd_val = bv_a_right_shift(rs2_val, rs1_val); }
+            (i == OR) : { new_rd_val = rs1_val | rs2_val; }
+            (i == AND) : { new_rd_val = rs1_val & rs2_val; }
+        esac
+        call do_reg_write(args.rd, new_rd_val);
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_b(args : btype_t)
+        modifies pc, exception;
+    {
+        var i : btype_inst_t;
+        var b_tgt : pc_t;
+        var taken : boolean;
+        var rs1_val : reg_data_t;
+        var rs2_val : reg_data_t;
+        i = args.inst;
+        rs1_val = regfile[args.rs1];
+        rs2_val = regfile[args.rs2];
+        b_tgt = pc + bv_sign_extend(19, args.imm);
+        if (b_tgt[1:0] != 0bv2) {
+            call set_exception(X_MISALIGNED_INST);
+            pc = pc + 4bv32;
+        } else {
+            case
+                (i == BEQ) : { taken = rs1_val == rs2_val; }
+                (i == BNE) : { taken = rs1_val != rs2_val; }
+                (i == BLT) : { taken = rs1_val < rs2_val; }
+                (i == BGE) : { taken = rs1_val >= rs2_val; }
+                (i == BLTU) : { taken = rs1_val <_u rs2_val; }
+                (i == BGEU) : { taken = rs1_val >=_u rs2_val; }
+            esac
+            pc = if (taken) then b_tgt else pc + 4bv32;
+        }
+    }
+
+    procedure exec_u(args : utype_t)
+        modifies regfile, pc;
+    {
+        var i : utype_inst_t;
+        var new_rd_val : reg_data_t;
+        i = args.inst;
+        case
+            (i == AUIPC) : { new_rd_val = pc + args.imm; }
+            (i == LUI) : { new_rd_val = args.imm; }
+        esac
+        call do_reg_write(args.rd, new_rd_val);
+        pc = pc + 4bv32;
+    }
+
+    procedure exec_jal(args : jal_t)
+        modifies regfile, pc, exception;
+    {
+        var tgt_pc : pc_t;
+        tgt_pc = pc + bv_sign_extend(11, args.imm);
+        if (tgt_pc[1:0] != 0bv2) {
+            call set_exception(X_MISALIGNED_INST);
+            pc = pc + 4bv32;
+        } else {
+            call do_reg_write(args.rd, pc + 4bv32);
+            pc = tgt_pc;
+        }
+    }
+
+    procedure exec_jalr(args : jalr_t)
+        modifies regfile, pc, exception;
+    {
+        var tgt_pc : pc_t;
+        tgt_pc = regfile[args.rs1] + bv_sign_extend(20, args.imm);
+        if (tgt_pc[1:0] != 0bv2) {
+            call set_exception(X_MISALIGNED_INST);
+            pc = pc + 4bv32;
+        } else {
+            call do_reg_write(args.rd, pc + 4bv32);
+            pc = tgt_pc;
+        }
+    }
+
+    procedure exec_system(args : system_t)
+        modifies exception;
+    {
+        var i : system_inst_t;
+        i = args.inst;
+        case
+            (i == ECALL) : { call set_exception(X_ECALL); }
+            (i == EBREAK) : { call set_exception(X_EBREAK); }
+        esac
+    }
+    // ===== END INSTRUCTION EXECUTE FUNCTIONS =====
+
+    // Decodes and executes an instruction from IMEM
+    procedure exec_next_inst()
+        modifies pc, regfile, dmem, exception;
+    {
+        var inst : inst_t;
+        var oc : bv7;
+        var rs1 : bv5;
+        var rs2 : bv5;
+        var rd : bv5;
+        var f3 : bv3;
+        var f7 : bv7;
+        var i_imm : bv12;
+        var i_shift_inst : itype_shift_inst_t;
+        var i_mem_inst : itype_mem_inst_t;
+        var s_inst : stype_inst_t;
+        inst = imem[pc_to_mem_addr(pc)];
+        oc = get_opcode(inst);
+        rs1 = get_rs1(inst);
+        rs2 = get_rs2(inst);
+        rd = get_rd(inst);
+        f3 = get_f3(inst);
+        f7 = get_f7(inst);
+        i_imm = get_i_imm(inst);
+        case
+            (oc == OPCODE_I_ARITH) : {
+                if (f3 == F3_SLLI || f3 == F3_SRI) {
+                    var args : itype_shift_t;
+                    args.rs1 = rs1;
+                    args.rd = rd;
+                    args.shamt = i_imm[4:0];
+                    case
+                        (f3 == F3_SLLI) : { args.inst = SLLI; }
+                        (f7[5:5] == 0bv1) : { args.inst = SRLI; }
+                        (f7[5:5] == 1bv1) : { args.inst = SRAI; }
+                        default: { call set_exception(X_INVALID_INST); }
+                    esac
+                    if (exception.cause != X_INVALID_INST) {
+                        call exec_i_shift(args);
+                    }
+                } else {
+                    var args : itype_arith_t;
+                    args.rs1 = rs1;
+                    args.rd = rd;
+                    args.imm = i_imm;
+                    case
+                        (f3 == F3_ADDI) : { args.inst = ADDI; }
+                        (f3 == F3_SLTI) : { args.inst = SLTI; }
+                        (f3 == F3_SLTIU) : { args.inst = SLTIU; }
+                        (f3 == F3_XORI) : { args.inst = XORI; }
+                        (f3 == F3_ORI) : { args.inst = ORI; }
+                        (f3 == F3_ANDI) : { args.inst = ANDI; }
+                        default: { call set_exception(X_INVALID_INST); }
+                    esac
+                    if (exception.cause != X_INVALID_INST) {
+                        call exec_i_arith(args);
+                    }
+                }
+            } 
+            (oc == OPCODE_I_MEM) : {
+                var args : itype_mem_t;
+                args.rd = rd;
+                args.rs1 = rs1;
+                args.imm = i_imm;
+                case
+                    (f3 == F3_LB) : { args.inst = LB; }
+                    (f3 == F3_LBU) : { args.inst = LBU; }
+                    (f3 == F3_LH) : { args.inst = LH; }
+                    (f3 == F3_LHU) : { args.inst = LHU; }
+                    (f3 == F3_LW) : { args.inst = LW; }
+                    default: { call set_exception(X_INVALID_INST); }
+                esac
+                if (exception.cause != X_INVALID_INST) {
+                    call exec_i_mem(args);
+                }
+            }
+            (oc == OPCODE_R) : {
+                var args : rtype_t;
+                args.rd = rd;
+                args.rs1 = rs1;
+                args.rs2 = rs2;
+                case
+                    (f3 == F3_ADD) : { args.inst = if (f7[5:5] == 0bv1) then ADD else SUB; }
+                    (f3 == F3_SLL) : { args.inst = SLL; }
+                    (f3 == F3_SLT) : { args.inst = SLT; }
+                    (f3 == F3_SLTU) : { args.inst = SLTU; }
+                    (f3 == F3_XOR) : { args.inst = XOR; }
+                    (f3 == F3_SR) : { args.inst = if (f7[5:5] == 0bv1) then SRL else SRA; }
+                    (f3 == F3_OR) : { args.inst = OR; }
+                    (f3 == F3_AND) : { args.inst = AND; }
+                    default: { call set_exception(X_INVALID_INST); }
+                esac
+                if (exception.cause != X_INVALID_INST) {
+                    call exec_r(args);
+                }
+            }
+            (oc == OPCODE_S) : {
+                var args : stype_t;
+                args.rs1 = rs1;
+                args.rs2 = rs2;
+                args.imm = get_s_imm(inst);
+                case
+                    (f3 == F3_SB) : { args.inst = SB; }
+                    (f3 == F3_SH) : { args.inst = SH; }
+                    (f3 == F3_SW) : { args.inst = SW; }
+                    default: { call set_exception(X_INVALID_INST); }
+                esac
+                if (exception.cause != X_INVALID_INST) {
+                    call exec_s(args);
+                }
+            }
+            (oc == OPCODE_B) : {
+                var args : btype_t;
+                args.rs1 = rs1;
+                args.rs2 = rs2;
+                args.imm = get_b_imm(inst);
+                case
+                    (f3 == F3_BEQ) : { args.inst = BEQ; }
+                    (f3 == F3_BNE) : { args.inst = BNE; }
+                    (f3 == F3_BLT) : { args.inst = BLT; }
+                    (f3 == F3_BGE) : { args.inst = BGE; }
+                    (f3 == F3_BLTU) : { args.inst = BLTU; }
+                    (f3 == F3_BGEU) : { args.inst = BGEU; }
+                    default: { call set_exception(X_INVALID_INST); }
+                esac
+                if (exception.cause != X_INVALID_INST) {
+                    call exec_b(args);
+                }
+            }
+            (oc == OPCODE_AUIPC || oc == OPCODE_LUI) : {
+                var args : utype_t;
+                args.rd = rd;
+                args.imm = get_u_imm(inst);
+                case
+                    (oc == OPCODE_AUIPC) : { args.inst = AUIPC; }
+                    (oc == OPCODE_LUI) : { args.inst = LUI; }
+                    default: { call set_exception(X_INVALID_INST); }
+                esac
+                if (exception.cause != X_INVALID_INST) {
+                    call exec_u(args);
+                }
+            }
+            (oc == OPCODE_JAL) : {
+                var args : jal_t;
+                args.rd = rd;
+                args.imm = get_j_imm(inst);
+                call exec_jal(args);
+            }
+            (oc == OPCODE_JALR) : {
+                var args : jalr_t;
+                args.rd = rd;
+                args.rs1 = rs1;
+                args.imm = get_i_imm(inst);
+                call exec_jalr(args);
+            }
+            (oc == OPCODE_SYS) : {
+                var args : system_t;
+                case
+                    (i_imm == 0bv12) : { args.inst = ECALL; }
+                    (i_imm == 1bv12) : { args.inst = EBREAK; }
+                    default: { call set_exception(X_INVALID_INST); }
+                esac
+                call exec_system(args);
+            }
+            (oc == OPCODE_FENCE) : {
+                var args : fence_t;
+                // nop
+                pc = pc + 4bv32;
+            }
+            default : { call set_exception(X_INVALID_INST); }
+        esac
+    }
+
+    init {
+        assume (forall (r : reg_addr_t) :: regfile[r] == 0bv32);
+        assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
+        // assume (regfile[registers.x0] == 0bv32);
+        pc = PC_START;
+        exception.cause = X_NONE; // epc doesn't matter
+    }
+
+    next {
+        if (exception.cause == X_NONE) {
+            call exec_next_inst();
+        }
+    }
+}
+
