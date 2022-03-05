@@ -455,7 +455,7 @@ module cpu {
 
     init {
         assume (forall (r : reg_addr_t) :: regfile[r] == 0bv32);
-        assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
+        // assume (forall (a : mem_word_addr_t) :: dmem[a] == 0bv32);
         // assume (regfile[registers.x0] == 0bv32);
         pc = PC_START;
         exception.cause = X_NONE; // epc doesn't matter
