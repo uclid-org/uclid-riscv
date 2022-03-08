@@ -91,6 +91,14 @@ module main {
     init {
         reset = true;
         flush = false;
+        call (test_inst_0) = random_inst();
+        call (test_inst_1) = random_inst();
+        call (test_inst_2) = random_inst();
+        call (test_inst_3) = random_inst();
+        call (test_inst_4) = random_inst();
+        call (test_inst_5) = random_inst();
+        call (test_inst_6) = random_inst();
+
         assume (imem[IMEM_PC_START + 0bv30] == test_inst_0);
         assume (imem[IMEM_PC_START + 1bv30] == test_inst_1);
         assume (imem[IMEM_PC_START + 2bv30] == test_inst_2);
@@ -98,6 +106,7 @@ module main {
         assume (imem[IMEM_PC_START + 4bv30] == test_inst_4);
         assume (imem[IMEM_PC_START + 5bv30] == test_inst_5);
         assume (imem[IMEM_PC_START + 6bv30] == test_inst_6);
+
         // assume (!(exists (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 1bv30) && imem[a] != instructions.NOP))); // all else nops
 
         // TODO parameterize DMEM and regfile as arguments for model
