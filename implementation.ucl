@@ -443,7 +443,7 @@ module Datapath {
         started = reset;
         npc = if (ec.pc_sel == PC_SEL_ALU || ew_br_taken) then ew_alu_out else pc_p4;
         if (!flush) {
-            fe_pc = npc;
+            fe_pc = if (should_stall()) then fe_pc else npc;
             fe_inst = if (should_stall()) then instructions.NOP else imem[pc_to_mem_addr(npc)];
             call (fe_ctrl) = ctrl.compute_result(fe_inst);
         }

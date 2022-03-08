@@ -19,7 +19,7 @@ module main {
 
     instance ec : encdec ();
 
-    type pipe_state_t = enum { UNSTARTED, WAITING, EXEC, COMMIT, DONE };
+    type pipe_state_t = enum { UNSTARTED, WAITING, COMMIT, DONE };
 
     var i_state : pipe_state_t;
     var s_state : pipe_state_t;
@@ -58,6 +58,9 @@ module main {
         var i_choice : bv4;
         // avoid generating improper alignment memory ops
         // TODO initial reg value may cause misaligned
+        assume (itype_mem_i.inst == LB || itype_mem_i.inst == LBU);
+        assume (stype_i.inst == SB);
+/*
         if (itype_mem_i.inst == LW) {
             assume (itype_mem_i.imm[1:0] == 0bv2);
         }
@@ -70,6 +73,7 @@ module main {
         if (stype_i.inst == SH) {
             assume (stype_i.imm[0:0] == 0bv1);
         }
+*/
         // avoid generating misaligned jump targets
         assume (btype_i.imm[1:0] == 0bv2);
         assume (jal_i.imm[1:0] == 0bv2);
@@ -117,6 +121,10 @@ module main {
     }
 
     next {
+        assume (impl.fe_pc <_u PC_START + 28bv32 && impl.fe_pc >=_u PC_START - 4bv32);
+        assume (spec.pc <_u PC_START + 28bv32 && spec.pc >=_u PC_START - 4bv32);
+        assume (impl.fe_pc[1:0] == 0bv2);
+        // assume (impl.ew_pc <_u PC_START + 28bv32 && impl.ew_pc >=_u PC_START - 4bv32);
         if (reset) {
             reset' = false;
         }
@@ -125,11 +133,6 @@ module main {
                 i_state' = WAITING;
             }
             (i_state == WAITING) : {
-                if (impl.fe_pc == GOAL_PC) {
-                    i_state' = EXEC;
-                }
-            }
-            (i_state == EXEC) : {
                 if (impl.ew_pc == GOAL_PC) {
                     flush' = true;
                     i_state' = COMMIT;
@@ -143,12 +146,12 @@ module main {
             }
         esac
         case
-            (s_state == UNSTARTED || s_state == WAITING) : {
+            (s_state == UNSTARTED) : {
                 if (spec.pc == GOAL_PC) {
-                    s_state' = EXEC;
+                    s_state' = WAITING;
                 }
             }
-            (s_state == EXEC) : {
+            (s_state == WAITING) : {
                 shadow_spec_pc0' = spec.pc;
                 shadow_spec_rf0' = spec.regfile;
                 s_state' = COMMIT;
@@ -209,6 +212,7 @@ module main {
             impl.illegal,
             i_state,
             s_state,
+            spec.pc,
             spec.exception,
             shadow_impl_pc,
             shadow_impl_rf,
