@@ -354,6 +354,7 @@ module Datapath {
 
     var started : boolean;
     var illegal : boolean;
+    var npc : pc_t;
     // Fetch -> Execute pipeline registers
     var fe_inst     : inst_t;
     var fe_pc       : pc_t;
@@ -430,17 +431,18 @@ module Datapath {
         modifies
             ctrl,
             started,
+            npc,
             fe_pc,
             fe_inst,
             fe_ctrl
             ;
     {
-        var npc : pc_t;
         var pc_p4 : pc_t;
         var ec : ctrl_sigs_t;
         ec = ew_ctrl;
         pc_p4 = fe_pc + 4bv32;
         started = reset;
+// TODO problem is that NPC gets the value of ew_alu_out one cycle too late
         npc = if (ec.pc_sel == PC_SEL_ALU || ew_br_taken) then ew_alu_out else pc_p4;
         if (!flush) {
             fe_pc = if (should_stall()) then fe_pc else npc;
@@ -522,10 +524,10 @@ module Datapath {
         esac
         call (store_data) = calc_mem_write(ew_alu_out, ew_ctrl.st_type, ew_rs2_val);
         if (!flush) {
-            if (ew_ctrl.st_type != ST_XXX) {
+            if (!should_stall() && ew_ctrl.st_type != ST_XXX) {
                 dmem[ew_alu_out[31:2]] = store_data;
             }
-            if (ew_ctrl.wb_en && ew_rd != 0bv5) {
+            if (!should_stall() && ew_ctrl.wb_en && ew_rd != 0bv5) {
                 regs[ew_rd] = wb_val;
             }
             illegal = ew_ctrl.illegal;
