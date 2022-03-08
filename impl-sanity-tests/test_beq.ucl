@@ -70,7 +70,7 @@ module main {
     invariant pc_aligned : i_state != DONE ==> impl.fe_pc[1:0] == 0bv2;
 
     control {
-        vobj = bmc_noLTL(16);
+        vobj = bmc_noLTL(12);
         check;
         print_results;
         vobj.print_cex(
