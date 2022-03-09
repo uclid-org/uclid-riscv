@@ -445,7 +445,7 @@ module Datapath {
 // TODO problem is that NPC gets the value of ew_alu_out one cycle too late
         npc = if (ec.pc_sel == PC_SEL_ALU || ew_br_taken) then ew_alu_out else pc_p4;
         if (!flush) {
-            fe_pc = if (should_stall()) then fe_pc else npc;
+            fe_pc = npc;
             fe_inst = if (should_stall()) then instructions.NOP else imem[pc_to_mem_addr(npc)];
             call (fe_ctrl) = ctrl.compute_result(fe_inst);
         }
@@ -501,10 +501,18 @@ module Datapath {
             ew_imm = imm;
             ew_alu_a = alu_a;
             ew_alu_b = alu_b;
-            call (ew_alu_out) = alu.compute_result(alu_a, alu_b, fe_ctrl.alu_op);
             ew_rd = get_rd(ew_inst);
-            call (ew_br_taken) = brcond.compute_result(fwd_rs1_val, fwd_rs2_val, fe_ctrl.br_type);
             ew_ctrl = fe_ctrl;
+            // Not directly translated from hardware:
+            // If the last instruction to execute was a branch, then this instruction should
+            // be killed
+            if (reset || should_stall()) {
+                ew_ctrl.st_type = ST_XXX;
+                ew_ctrl.wb_en = false;
+                ew_ctrl.illegal = false;
+            }
+            call (ew_alu_out) = alu.compute_result(alu_a, alu_b, fe_ctrl.alu_op);
+            call (ew_br_taken) = brcond.compute_result(fwd_rs1_val, fwd_rs2_val, fe_ctrl.br_type);
         }
     }
 
@@ -524,10 +532,10 @@ module Datapath {
         esac
         call (store_data) = calc_mem_write(ew_alu_out, ew_ctrl.st_type, ew_rs2_val);
         if (!flush) {
-            if (!should_stall() && ew_ctrl.st_type != ST_XXX) {
+            if (ew_ctrl.st_type != ST_XXX) {
                 dmem[ew_alu_out[31:2]] = store_data;
             }
-            if (!should_stall() && ew_ctrl.wb_en && ew_rd != 0bv5) {
+            if (ew_ctrl.wb_en && ew_rd != 0bv5) {
                 regs[ew_rd] = wb_val;
             }
             illegal = ew_ctrl.illegal;
