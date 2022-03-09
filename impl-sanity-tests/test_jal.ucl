@@ -20,20 +20,18 @@ module main {
     const IMEM_PC_START : bv30 = 0x20000000bv30;
     const PC_START : bv32 = 0x80000000bv32;
 
-    const GOAL_PC : bv32 = 0x80000018bv32;
+    const GOAL_PC : bv32 = 0x80000010bv32;
 
     init {
         assume (imem[IMEM_PC_START + 0bv30] == instructions.NOP);
-        assume (imem[IMEM_PC_START + 1bv30] == 0x00000663bv32); // beq x0, x0, 12
+        assume (imem[IMEM_PC_START + 1bv30] == 0x00C000EFbv32); // jal x1, 12
         assume (imem[IMEM_PC_START + 2bv30] == 0xFFF00093bv32); // addi x1, x0, -1
         assume (imem[IMEM_PC_START + 3bv30] == 0xFFF00113bv32); // addi x2, x0, -1
-        assume (imem[IMEM_PC_START + 4bv30] == 0x00001463bv32); // bne x0, x0, 8
-        assume (imem[IMEM_PC_START + 5bv30] == 0xFFF00193bv32); // addi x3, x0, -1
-        assume (imem[IMEM_PC_START + 6bv30] == 0xFFF00213bv32); // addi x4, x0, -1
+        assume (imem[IMEM_PC_START + 4bv30] == 0xFFF00193bv32); // addi x3, x0, -1
+        assume (imem[IMEM_PC_START + 5bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 6bv30] == instructions.NOP);
         assume (imem[IMEM_PC_START + 7bv30] == instructions.NOP);
-        assume (imem[IMEM_PC_START + 8bv30] == instructions.NOP);
-        assume (imem[IMEM_PC_START + 9bv30] == instructions.NOP);
-        // assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 6bv30) ==> imem[a] == instructions.NOP)); // all else nops
+        // assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 4bv30) ==> imem[a] == instructions.NOP)); // all else nops
         step = 0;
         i_state = UNSTARTED;
         flush = false;
@@ -45,7 +43,7 @@ module main {
                 i_state' = WAITING;
             }
             (i_state == WAITING) : {
-                if (impl.ew_pc == GOAL_PC && !(impl.ew_ctrl.inst_kill || impl.ew_br_taken)) {
+                if (impl.ew_pc == GOAL_PC) {
                     i_state' = COMMITTED;
                 }
             }
@@ -62,17 +60,16 @@ module main {
     }
 
     // Assert statements within next blocks seem to be buggy?
-    invariant reaches_done : step == 16 ==> i_state == DONE;
+    invariant reaches_done : step == 7 ==> i_state == DONE;
     invariant when_done : i_state == DONE ==> (
-        shadow_impl_rf[1bv5] == 0bv32 &&
+        shadow_impl_rf[1bv5] == PC_START + 8bv32 &&
         shadow_impl_rf[2bv5] == 0x0bv32 &&
-        shadow_impl_rf[3bv5] == 0xFFFFFFFFbv32 &&
-        shadow_impl_rf[4bv5] == 0xFFFFFFFFbv32
+        shadow_impl_rf[3bv5] == 0xFFFFFFFFbv32
     );
     invariant pc_aligned : i_state != DONE ==> impl.fe_pc[1:0] == 0bv2;
 
     control {
-        vobj = bmc_noLTL(12);
+        vobj = bmc_noLTL(7);
         check;
         print_results;
         vobj.print_cex(

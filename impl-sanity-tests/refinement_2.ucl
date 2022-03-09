@@ -9,12 +9,11 @@ module main {
     const * = registers.*;
     const * = encdec.*;
 
-    var reset : boolean;
     var imem : mem_t;
     var step : integer;
     var flush : boolean;
 
-    instance impl : Datapath (reset : (reset), imem : (imem), flush : (flush));
+    instance impl : Datapath (imem : (imem), flush : (flush));
     instance spec : cpu (imem : (imem));
 
     instance ec : encdec ();
@@ -41,7 +40,7 @@ module main {
     const IMEM_PC_START : bv30 = 0x20000000bv30;
     const PC_START : bv32 = 0x80000000bv32;
 
-    const GOAL_PC : bv32 = 0x80000004bv32;
+    const GOAL_PC : bv32 = 0x80000000bv32;
 
     procedure random_inst() returns (new_inst : inst_t) modifies ec; {
         // randomly generate an instruction
@@ -93,7 +92,6 @@ module main {
     }
 
     init {
-        reset = true;
         flush = false;
         call (test_inst_0) = random_inst();
         call (test_inst_1) = random_inst();
@@ -121,13 +119,10 @@ module main {
     }
 
     next {
-        assume (impl.fe_pc <_u PC_START + 28bv32 && impl.fe_pc >=_u PC_START - 4bv32);
-        assume (spec.pc <_u PC_START + 28bv32 && spec.pc >=_u PC_START - 4bv32);
+        assume (i_state == UNSTARTED || (impl.fe_pc <_u PC_START + 28bv32 && impl.fe_pc >=_u PC_START));
+        assume (spec.pc <_u PC_START + 28bv32 && spec.pc >=_u PC_START);
         assume (impl.fe_pc[1:0] == 0bv2);
         // assume (impl.ew_pc <_u PC_START + 28bv32 && impl.ew_pc >=_u PC_START - 4bv32);
-        if (reset) {
-            reset' = false;
-        }
         case
             (i_state == UNSTARTED) : {
                 i_state' = WAITING;
@@ -140,7 +135,7 @@ module main {
             }
             (i_state == COMMIT) : {
                 flush' = false;
-                shadow_impl_pc' = impl.fe_pc;
+                shadow_impl_pc' = impl.npc;
                 shadow_impl_rf' = impl.regs;
                 i_state' = DONE;
             }
@@ -173,6 +168,10 @@ module main {
 
     define spec_ok() : boolean = spec.exception.cause == X_NONE;
 
+    // Because we have 6 free instructions, we actually can synthesize loops
+    // The only problem is that unless GOAL_PC is the address of the first instruction,
+    // we cannot guarantee that the program reaches GOAL_PC, e.g. if one of the instructions
+    // is beq x0, x0, 0 and loops forever
     invariant reaches_done : (step == 5) ==> (i_state == DONE && s_state == DONE);
     invariant when_done : (spec_ok() && i_state == DONE && s_state == DONE) ==>
         ((shadow_impl_pc == shadow_spec_pc0 && shadow_impl_rf == shadow_spec_rf0) ||
@@ -193,7 +192,6 @@ module main {
             test_inst_5,
             test_inst_6,
             flush,
-            reset,
             step,
             imem,
             impl.fe_pc,
@@ -208,12 +206,13 @@ module main {
             impl.ew_rs2_val,
             impl.ew_alu_out,
             impl.regs,
-            impl.started,
+            impl.dmem,
             impl.illegal,
             i_state,
             s_state,
             spec.pc,
             spec.exception,
+            spec.dmem,
             shadow_impl_pc,
             shadow_impl_rf,
             shadow_spec_pc0,

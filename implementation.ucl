@@ -150,7 +150,7 @@ module ControlLogic {
                 c.imm_sel = IMM_I;
                 c.alu_op = ALU_ADD;
                 c.br_type = BR_XXX;
-                c.inst_kill = true;
+                c.inst_kill = false; // true;
                 c.st_type = ST_XXX;
                 case
                     (f3 == F3_LB)  : { c.ld_type = LD_LB; c.illegal = false; }
@@ -343,8 +343,6 @@ module Datapath {
 
     const PC_START : pc_t = 0x80000000bv32;
 
-    input reset : boolean;
-
     // When this signal is high, updates to state (PC, regs, dmem) will be suspended
     input flush : boolean;
 
@@ -352,7 +350,6 @@ module Datapath {
     var dmem : mem_t;
     var regs : regfile_t;
 
-    var started : boolean;
     var illegal : boolean;
     var npc : pc_t;
     // Fetch -> Execute pipeline registers
@@ -377,8 +374,6 @@ module Datapath {
     instance immgen : ImmGen();
     instance alu : Alu ();
     instance ctrl : ControlLogic ();
-
-    define should_stall() : boolean = started || ew_ctrl.inst_kill || ew_br_taken;
 
     procedure calc_mem_read(addr : reg_data_t, ld_type : bv3)
         returns (new_rd_val : reg_data_t)
@@ -428,34 +423,32 @@ module Datapath {
     }
 
     procedure do_fetch()
+        returns (maybe_fe_ctrl : ctrl_sigs_t)
         modifies
             ctrl,
-            started,
             npc,
             fe_pc,
-            fe_inst,
-            fe_ctrl
+            fe_inst
             ;
     {
         var pc_p4 : pc_t;
         var ec : ctrl_sigs_t;
         ec = ew_ctrl;
         pc_p4 = fe_pc + 4bv32;
-        started = reset;
-// TODO problem is that NPC gets the value of ew_alu_out one cycle too late
         npc = if (ec.pc_sel == PC_SEL_ALU || ew_br_taken) then ew_alu_out else pc_p4;
         if (!flush) {
             fe_pc = npc;
-            fe_inst = if (should_stall()) then instructions.NOP else imem[pc_to_mem_addr(npc)];
-            call (fe_ctrl) = ctrl.compute_result(fe_inst);
+            fe_inst = imem[pc_to_mem_addr(npc)];
+            call (maybe_fe_ctrl) = ctrl.compute_result(fe_inst);
         }
     }
 
-    procedure do_execute()
+    procedure do_execute(maybe_fe_ctrl : ctrl_sigs_t)
         modifies
             brcond,
             immgen,
             alu,
+            fe_ctrl,
             ew_pc,
             ew_inst,
             ew_alu_out,
@@ -503,16 +496,19 @@ module Datapath {
             ew_alu_b = alu_b;
             ew_rd = get_rd(ew_inst);
             ew_ctrl = fe_ctrl;
-            // Not directly translated from hardware:
-            // If the last instruction to execute was a branch, then this instruction should
-            // be killed
-            if (reset || should_stall()) {
-                ew_ctrl.st_type = ST_XXX;
-                ew_ctrl.wb_en = false;
-                ew_ctrl.illegal = false;
-            }
+            
             call (ew_alu_out) = alu.compute_result(alu_a, alu_b, fe_ctrl.alu_op);
             call (ew_br_taken) = brcond.compute_result(fwd_rs1_val, fwd_rs2_val, fe_ctrl.br_type);
+
+            // Not directly translated from hardware:
+            // If the last instruction to retire was a branch, then the fetching instruction should
+            // be killed
+            fe_ctrl = maybe_fe_ctrl;
+            if (ew_ctrl.inst_kill || ew_br_taken) {
+                fe_ctrl.st_type = ST_XXX;
+                fe_ctrl.wb_en = false;
+                fe_ctrl.illegal = false;
+            }
         }
     }
 
@@ -552,14 +548,14 @@ module Datapath {
         call (fe_ctrl) = ctrl.compute_result(fe_inst);
         ew_ctrl = fe_ctrl;
         ew_rd = registers.x0;
-        started = false;
         // assume (regs[registers.x0] == 0bv32);
         assume (forall (a : reg_addr_t) :: regs[a] == 0bv32);
     }
 
     next {
-        call do_fetch();
-        call do_execute();
+        var maybe_fe_ctrl : ctrl_sigs_t;
+        call (maybe_fe_ctrl) = do_fetch();
+        call do_execute(maybe_fe_ctrl);
         call do_wb();
     }
 }
