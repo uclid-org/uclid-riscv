@@ -500,15 +500,17 @@ module Datapath {
             call (ew_alu_out) = alu.compute_result(alu_a, alu_b, fe_ctrl.alu_op);
             call (ew_br_taken) = brcond.compute_result(fwd_rs1_val, fwd_rs2_val, fe_ctrl.br_type);
 
-            // Not directly translated from hardware:
-            // If the last instruction to retire was a branch, then the fetching instruction should
-            // be killed
-            fe_ctrl = maybe_fe_ctrl;
-            if (ew_ctrl.inst_kill || ew_br_taken) {
-                fe_ctrl.st_type = ST_XXX;
-                fe_ctrl.wb_en = false;
-                fe_ctrl.illegal = false;
-            }
+        }
+        // Not directly translated from hardware:
+        // If the last instruction to retire was a branch, then the fetching instruction should
+        // be killed
+        fe_ctrl = maybe_fe_ctrl;
+        if (flush || ew_ctrl.inst_kill || ew_br_taken) {
+            ew_inst = instructions.NOP;
+            fe_ctrl.pc_sel = PC_SEL_PC4;
+            fe_ctrl.st_type = ST_XXX;
+            fe_ctrl.wb_en = false;
+            fe_ctrl.illegal = false;
         }
     }
 
@@ -527,15 +529,14 @@ module Datapath {
             (ew_wb_sel == WB_PC4) : { wb_val = ew_pc + 4bv32; }
         esac
         call (store_data) = calc_mem_write(ew_alu_out, ew_ctrl.st_type, ew_rs2_val);
-        if (!flush) {
-            if (ew_ctrl.st_type != ST_XXX) {
-                dmem[ew_alu_out[31:2]] = store_data;
-            }
-            if (ew_ctrl.wb_en && ew_rd != 0bv5) {
-                regs[ew_rd] = wb_val;
-            }
-            illegal = ew_ctrl.illegal;
+        // Even if `flush` is asserted, this function should still complete
+        if (ew_ctrl.st_type != ST_XXX) {
+            dmem[ew_alu_out[31:2]] = store_data;
         }
+        if (ew_ctrl.wb_en && ew_rd != 0bv5) {
+            regs[ew_rd] = wb_val;
+        }
+        illegal = ew_ctrl.illegal;
     }
 
     init {

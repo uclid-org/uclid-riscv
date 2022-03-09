@@ -9,17 +9,16 @@ module main {
     const * = registers.*;
     const * = encdec.*;
 
-    var reset : boolean;
     var imem : mem_t;
     var step : integer;
     var flush : boolean;
 
-    instance impl : Datapath (reset : (reset), imem : (imem), flush : (flush));
+    instance impl : Datapath (imem : (imem), flush : (flush));
     instance spec : cpu (imem : (imem));
 
     instance ec : encdec ();
 
-    type pipe_state_t = enum { UNSTARTED, WAITING, EXEC, COMMIT, DONE };
+    type pipe_state_t = enum { UNSTARTED, WAITING, FLUSH, COMMIT, DONE };
 
     var i_state : pipe_state_t;
     var s_state : pipe_state_t;
@@ -81,7 +80,6 @@ module main {
             default            : { test_inst = instructions.NOP; }
         esac
 
-        reset = true;
         flush = false;
         assume (imem[IMEM_PC_START + 0bv30] == instructions.NOP);
         assume (imem[IMEM_PC_START + 1bv30] == test_inst);
@@ -101,27 +99,28 @@ module main {
     }
 
     next {
-        if (reset) {
-            reset' = false;
-        }
+        assume (i_state == UNSTARTED || (impl.fe_pc <_u PC_START + 28bv32 && impl.fe_pc >=_u PC_START));
+        assume (spec.pc <_u PC_START + 28bv32 && spec.pc >=_u PC_START);
+        assume (impl.fe_pc[1:0] == 0bv2);
+
         case
             (i_state == UNSTARTED) : {
                 i_state' = WAITING;
             }
             (i_state == WAITING) : {
                 if (impl.fe_pc == GOAL_PC) {
-                    i_state' = EXEC;
+                    flush' = true;
+                    i_state' = FLUSH;
                 }
             }
-            (i_state == EXEC) : {
-                if (impl.ew_pc == GOAL_PC) {
-                    flush' = true;
-                    i_state' = COMMIT;
-                }
+            (i_state == FLUSH) : {
+                flush' = false;
+                i_state' = COMMIT;
             }
             (i_state == COMMIT) : {
-                flush' = false;
-                shadow_impl_pc' = impl.fe_pc;
+                // Due to flushing logic, if the branch is taken the next pc will be npc,
+                // otherwise it will be fe_pc
+                shadow_impl_pc' = if (impl.ew_br_taken || impl.ew_ctrl.pc_sel == ControlLogic.PC_SEL_ALU) then impl.npc else impl.fe_pc;
                 shadow_impl_rf' = impl.regs;
                 i_state' = DONE;
             }
@@ -129,18 +128,15 @@ module main {
         case
             (s_state == UNSTARTED || s_state == WAITING) : {
                 if (spec.pc == GOAL_PC) {
-                    s_state' = EXEC;
+                    s_state' = COMMIT;
+                    shadow_spec_pc0' = spec.pc;
+                    shadow_spec_rf0' = spec.regfile;
                 }
             }
-            (s_state == EXEC) : {
-                shadow_spec_pc0' = spec.pc;
-                shadow_spec_rf0' = spec.regfile;
-                s_state' = COMMIT;
-            }
             (s_state == COMMIT) : {
+                s_state' = DONE;
                 shadow_spec_pc1' = spec.pc;
                 shadow_spec_rf1' = spec.regfile;
-                s_state' = DONE;
             }
         esac
         if (i_state != DONE) {
@@ -154,7 +150,7 @@ module main {
 
     define spec_ok() : boolean = spec.exception.cause == X_NONE;
 
-    invariant reaches_done : (step == 5) ==> (i_state == DONE && s_state == DONE);
+    invariant reaches_done : (step == 6) ==> (i_state == DONE && s_state == DONE);
     invariant when_done : (spec_ok() && i_state == DONE && s_state == DONE) ==>
         ((shadow_impl_pc == shadow_spec_pc0 && shadow_impl_rf == shadow_spec_rf0) ||
          (shadow_impl_pc == shadow_spec_pc1 && shadow_impl_rf == shadow_spec_rf1))
@@ -162,15 +158,15 @@ module main {
     invariant pc_aligned : (spec_ok() && i_state != DONE) ==> impl.fe_pc[1:0] == 0bv2;
 
     control {
-        vobj = bmc_noLTL(5); // FIX: why does 'bmc' here not work?
+        vobj = bmc_noLTL(6); // FIX: why does 'bmc' here not work?
         check;
         print_results;
         vobj.print_cex(
             test_inst,
             flush,
-            reset,
             step,
             imem,
+            impl.npc,
             impl.fe_pc,
             impl.fe_inst,
             impl.fe_ctrl,
@@ -183,7 +179,6 @@ module main {
             impl.ew_rs2_val,
             impl.ew_alu_out,
             impl.regs,
-            impl.started,
             impl.illegal,
             i_state,
             s_state,

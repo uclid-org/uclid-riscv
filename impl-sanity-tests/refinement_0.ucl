@@ -7,11 +7,10 @@ module main {
     const * = registers.*;
     const * = encdec.*;
 
-    var reset : boolean;
     var imem : mem_t;
     var step : integer;
 
-    instance impl : Datapath (reset : (reset), imem : (imem));
+    instance impl : Datapath (flush : (false), imem : (imem));
     instance spec : cpu (imem : (imem));
 
     type pipe_state_t = enum { UNSTARTED, WAITING, EXEC, COMMITTED, DONE };
@@ -34,14 +33,11 @@ module main {
         var opcode : bv7;
         var f3 : bv3;
         var f7 : bv7;
-        reset = true;
-        // TODO test control flow insts
         // instruction validity checks
         opcode = get_opcode(test_inst);
         f3 = get_f3(test_inst);
         f7 = get_f7(test_inst);
         assume (opcode == OPCODE_I_ARITH || opcode == OPCODE_I_MEM || opcode == OPCODE_R || opcode == OPCODE_AUIPC || opcode == OPCODE_LUI || opcode == OPCODE_S);
-        // TODO unconstrain f7, shouldn't be too hard
         assume (opcode == OPCODE_R ==> f7 == 0bv7);
         // all F3s for I_ARITH and R are valid
         assume (opcode == OPCODE_S ==> f3 <= F3_SW);
@@ -49,7 +45,8 @@ module main {
 
         assume (imem[IMEM_PC_START + 0bv30] == instructions.NOP);
         assume (imem[IMEM_PC_START + 1bv30] == test_inst);
-        assume (!(exists (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 1bv30) ==> imem[a] != instructions.NOP))); // all else nops
+        assume (imem[IMEM_PC_START + 2bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 3bv30] == instructions.NOP);
 
         // TODO parameterize DMEM and regfile as arguments for model
         assume (impl.dmem == spec.dmem);
@@ -59,9 +56,6 @@ module main {
     }
 
     next {
-        if (reset) {
-            reset' = false;
-        }
         case
             (i_state == UNSTARTED) : {
                 i_state' = WAITING;
@@ -115,7 +109,6 @@ module main {
         check;
         print_results;
         vobj.print_cex(
-            reset,
             step,
             imem,
             impl.fe_pc,
@@ -130,7 +123,6 @@ module main {
             impl.ew_rs2_val,
             impl.ew_alu_out,
             impl.regs,
-            impl.started,
             impl.illegal,
             test_inst,
             i_state,

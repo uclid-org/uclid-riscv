@@ -18,7 +18,7 @@ module main {
 
     instance ec : encdec ();
 
-    type pipe_state_t = enum { UNSTARTED, WAITING, COMMIT, DONE };
+    type pipe_state_t = enum { UNSTARTED, WAITING, FLUSH, COMMIT, DONE };
 
     var i_state : pipe_state_t;
     var s_state : pipe_state_t;
@@ -55,27 +55,14 @@ module main {
         var jalr_i : jalr_t;
         // 9 possible instruction types to choose
         var i_choice : bv4;
-        // avoid generating improper alignment memory ops
-        // TODO initial reg value may cause misaligned
+        // TODO avoid generating improper alignment memory ops for now
         assume (itype_mem_i.inst == LB || itype_mem_i.inst == LBU);
         assume (stype_i.inst == SB);
-/*
-        if (itype_mem_i.inst == LW) {
-            assume (itype_mem_i.imm[1:0] == 0bv2);
-        }
-        if (itype_mem_i.inst == LH || itype_mem_i.inst == LHU) {
-            assume (itype_mem_i.imm[0:0] == 0bv1);
-        }
-        if (stype_i.inst == SW) {
-            assume (stype_i.imm[1:0] == 0bv2);
-        }
-        if (stype_i.inst == SH) {
-            assume (stype_i.imm[0:0] == 0bv1);
-        }
-*/
         // avoid generating misaligned jump targets
-        assume (btype_i.imm[1:0] == 0bv2);
-        assume (jal_i.imm[1:0] == 0bv2);
+        // also avoid 0 jumps, which mess up the PC checks
+        // this does not restrict jalr
+        assume (btype_i.imm[1:0] == 0bv2 && btype_i.imm != 0bv13);
+        assume (jal_i.imm[1:0] == 0bv2 && jal_i.imm != 0bv21);
         // instruction encoding
         case
             (i_choice == 0bv4) : { call (new_inst) = ec.encode_rtype(rtype_i); }
@@ -128,14 +115,18 @@ module main {
                 i_state' = WAITING;
             }
             (i_state == WAITING) : {
-                if (impl.ew_pc == GOAL_PC) {
+                // TODO add predicate for inst kill to allow other target PCs
+                if (impl.fe_pc == GOAL_PC) {
                     flush' = true;
-                    i_state' = COMMIT;
+                    i_state' = FLUSH;
                 }
             }
-            (i_state == COMMIT) : {
+            (i_state == FLUSH) : {
                 flush' = false;
-                shadow_impl_pc' = impl.npc;
+                i_state' = COMMIT;
+            }
+            (i_state == COMMIT) : {
+                shadow_impl_pc' = if (impl.ew_br_taken || impl.ew_ctrl.pc_sel == ControlLogic.PC_SEL_ALU) then impl.npc else impl.fe_pc;
                 shadow_impl_rf' = impl.regs;
                 i_state' = DONE;
             }
@@ -143,15 +134,12 @@ module main {
         case
             (s_state == UNSTARTED) : {
                 if (spec.pc == GOAL_PC) {
+                    shadow_spec_pc0' = spec.pc;
+                    shadow_spec_rf0' = spec.regfile;
                     s_state' = WAITING;
                 }
             }
             (s_state == WAITING) : {
-                shadow_spec_pc0' = spec.pc;
-                shadow_spec_rf0' = spec.regfile;
-                s_state' = COMMIT;
-            }
-            (s_state == COMMIT) : {
                 shadow_spec_pc1' = spec.pc;
                 shadow_spec_rf1' = spec.regfile;
                 s_state' = DONE;
@@ -194,6 +182,7 @@ module main {
             flush,
             step,
             imem,
+            impl.npc,
             impl.fe_pc,
             impl.fe_inst,
             impl.fe_ctrl,

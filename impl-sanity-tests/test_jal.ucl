@@ -23,14 +23,13 @@ module main {
     const GOAL_PC : bv32 = 0x80000010bv32;
 
     init {
-        assume (imem[IMEM_PC_START + 0bv30] == instructions.NOP);
-        assume (imem[IMEM_PC_START + 1bv30] == 0x00C000EFbv32); // jal x1, 12
-        assume (imem[IMEM_PC_START + 2bv30] == 0xFFF00093bv32); // addi x1, x0, -1
-        assume (imem[IMEM_PC_START + 3bv30] == 0xFFF00113bv32); // addi x2, x0, -1
-        assume (imem[IMEM_PC_START + 4bv30] == 0xFFF00193bv32); // addi x3, x0, -1
+        assume (imem[IMEM_PC_START + 0bv30] == 0x00C000EFbv32); // jal x1, 12
+        assume (imem[IMEM_PC_START + 1bv30] == 0xFFF00093bv32); // addi x1, x0, -1
+        assume (imem[IMEM_PC_START + 2bv30] == 0xFFF00113bv32); // addi x2, x0, -1
+        assume (imem[IMEM_PC_START + 3bv30] == 0xFFF00193bv32); // addi x3, x0, -1
+        assume (imem[IMEM_PC_START + 4bv30] == instructions.NOP);
         assume (imem[IMEM_PC_START + 5bv30] == instructions.NOP);
         assume (imem[IMEM_PC_START + 6bv30] == instructions.NOP);
-        assume (imem[IMEM_PC_START + 7bv30] == instructions.NOP);
         // assume (forall (a : mem_word_addr_t) :: ((a < IMEM_PC_START || a > IMEM_PC_START + 4bv30) ==> imem[a] == instructions.NOP)); // all else nops
         step = 0;
         i_state = UNSTARTED;
@@ -62,7 +61,7 @@ module main {
     // Assert statements within next blocks seem to be buggy?
     invariant reaches_done : step == 7 ==> i_state == DONE;
     invariant when_done : i_state == DONE ==> (
-        shadow_impl_rf[1bv5] == PC_START + 8bv32 &&
+        shadow_impl_rf[1bv5] == PC_START + 4bv32 &&
         shadow_impl_rf[2bv5] == 0x0bv32 &&
         shadow_impl_rf[3bv5] == 0xFFFFFFFFbv32
     );
