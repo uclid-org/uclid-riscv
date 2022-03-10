@@ -1,0 +1,92 @@
+
+module main {
+    type * = common.*;
+    define * = common.*;
+    type * = instructions.*; // needed to fix enum import bug
+    const * = registers.*;
+
+    var flush : boolean;
+    var imem : mem_t;
+    var step : integer;
+
+    instance impl : Datapath (flush : (flush), imem : (imem));
+
+    type pipe_state_t = enum { UNSTARTED, WAITING, COMMITTED, DONE };
+
+    var i_state : pipe_state_t;
+    var shadow_impl_pc : pc_t;
+    var shadow_impl_rf : regfile_t;
+
+    const IMEM_PC_START : bv30 = 0x20000000bv30;
+    const PC_START : bv32 = 0x80000000bv32;
+
+    const GOAL_PC : bv32 = 0x80000000bv32;
+
+    init {
+        assume (imem[IMEM_PC_START + 0bv30] == 0x00000E83bv32); // lb x29, 0(x0)
+        assume (imem[IMEM_PC_START + 1bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 2bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 3bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 4bv30] == instructions.NOP);
+        assume (imem[IMEM_PC_START + 5bv30] == instructions.NOP);
+        assume (impl.dmem[0bv30] == 0xABCDbv32);
+        step = 0;
+        i_state = UNSTARTED;
+        flush = false;
+    }
+
+    next {
+        case
+            (i_state == UNSTARTED) : {
+                i_state' = WAITING;
+            }
+            (i_state == WAITING) : {
+                if (impl.ew_pc == GOAL_PC) {
+                    i_state' = COMMITTED;
+                }
+            }
+            (i_state == COMMITTED) : {
+                shadow_impl_pc' = impl.ew_pc;
+                shadow_impl_rf' = impl.regs;
+                i_state' = DONE;
+            }
+        esac
+        if (i_state != DONE) {
+            next(impl);
+        }
+        step' = step + 1;
+    }
+
+    // Assert statements within next blocks seem to be buggy?
+    invariant reaches_done : step == 5 ==> i_state == DONE;
+    invariant when_done : i_state == DONE ==> (shadow_impl_rf[29bv5] == 0xFFFFFFCDbv32 && shadow_impl_pc == GOAL_PC + 4bv32);
+    invariant pc_aligned : i_state != DONE ==> impl.fe_pc[1:0] == 0bv2;
+
+    control {
+        vobj = bmc_noLTL(5);
+        check;
+        print_results;
+        vobj.print_cex(
+            step,
+            imem,
+            impl.fe_pc,
+            impl.fe_inst,
+            impl.fe_ctrl,
+            impl.ew_pc,
+            impl.ew_inst,
+            impl.ew_ctrl,
+            impl.ew_imm,
+            impl.ew_alu_a,
+            impl.ew_alu_b,
+            impl.ew_br_taken,
+            impl.ew_rd,
+            impl.ew_rs2_val,
+            impl.ew_alu_out,
+            impl.regs,
+            i_state,
+            shadow_impl_pc,
+            shadow_impl_rf
+        );
+    }
+}
+
