@@ -59,9 +59,10 @@ module main {
         assume (stype_i.inst == SB);
         // avoid generating misaligned jump targets
         // also avoid 0 jumps, which mess up the PC checks
-        // this does not restrict jalr
         assume (btype_i.imm[1:0] == 0bv2 && btype_i.imm != 0bv13);
         assume (jal_i.imm[1:0] == 0bv2 && jal_i.imm != 0bv21);
+        // jalr can be circumvented with right register values :/
+        assume (jalr_i.imm[1:0] == 0bv2 && jalr_i.imm != 0bv12);
         // instruction encoding
         case
             (i_choice == 0bv4) : { call (new_inst) = ec.encode_rtype(rtype_i); }

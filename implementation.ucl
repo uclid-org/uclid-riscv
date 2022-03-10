@@ -129,7 +129,8 @@ module ControlLogic {
         ld_type : bv3,
         wb_sel : bv2,
         wb_en : boolean,
-        illegal : boolean
+        illegal : boolean,
+        killed : boolean
     };
 
     procedure compute_result(inst : inst_t)
@@ -142,6 +143,7 @@ module ControlLogic {
         opcode = get_opcode(inst);
         f3 = get_f3(inst);
         f7 = get_f7(inst);
+        c.killed = false;
         case
             (opcode == OPCODE_I_MEM) : {
                 c.pc_sel = PC_SEL_PC4;
@@ -150,6 +152,7 @@ module ControlLogic {
                 c.imm_sel = IMM_I;
                 c.alu_op = ALU_ADD;
                 c.br_type = BR_XXX;
+                // FIXME because there is no memory bypassing, we need to stall for a cycle
                 c.inst_kill = false; // true;
                 c.st_type = ST_XXX;
                 case
@@ -423,9 +426,11 @@ module Datapath {
     }
 
     procedure do_fetch()
-        returns (maybe_fe_pc : pc_t, maybe_fe_inst : inst_t, maybe_fe_ctrl : ctrl_sigs_t)
+        returns (maybe_fe_ctrl : ctrl_sigs_t)
         modifies
             ctrl,
+            fe_pc,
+            fe_inst,
             npc
             ;
     {
@@ -435,19 +440,17 @@ module Datapath {
         pc_p4 = fe_pc + 4bv32;
         npc = if (ec.pc_sel == PC_SEL_ALU || ew_br_taken) then ew_alu_out else pc_p4;
         if (!flush) {
-            maybe_fe_pc = npc;
-            maybe_fe_inst = imem[pc_to_mem_addr(npc)];
-            call (maybe_fe_ctrl) = ctrl.compute_result(maybe_fe_inst);
+            fe_pc = npc;
+            fe_inst = imem[pc_to_mem_addr(npc)];
+            call (maybe_fe_ctrl) = ctrl.compute_result(fe_inst);
         }
     }
 
-    procedure do_execute(maybe_fe_pc : pc_t, maybe_fe_inst : inst_t, maybe_fe_ctrl : ctrl_sigs_t)
+    procedure do_execute(maybe_fe_ctrl : ctrl_sigs_t)
         modifies
             brcond,
             immgen,
             alu,
-            fe_pc,
-            fe_inst,
             fe_ctrl,
             ew_pc,
             ew_inst,
@@ -504,16 +507,13 @@ module Datapath {
         // Not directly translated from hardware:
         // If the last instruction to retire was a branch, then the fetching instruction should
         // be killed
-        fe_pc = maybe_fe_pc;
-        fe_inst = maybe_fe_inst;
         fe_ctrl = maybe_fe_ctrl;
         if (flush || ew_ctrl.inst_kill || ew_br_taken) {
-            fe_pc = 0bv32;
-            fe_inst = instructions.NOP;
             fe_ctrl.pc_sel = PC_SEL_PC4;
             fe_ctrl.st_type = ST_XXX;
             fe_ctrl.wb_en = false;
             fe_ctrl.illegal = false;
+            fe_ctrl.killed = true;
         }
     }
 
@@ -557,11 +557,11 @@ module Datapath {
     }
 
     next {
-        var maybe_fe_pc : pc_t;
-        var maybe_fe_inst : inst_t;
+        // var maybe_fe_pc : pc_t;
+        // var maybe_fe_inst : inst_t;
         var maybe_fe_ctrl : ctrl_sigs_t;
-        call (maybe_fe_pc, maybe_fe_inst, maybe_fe_ctrl) = do_fetch();
-        call do_execute(maybe_fe_pc, maybe_fe_inst, maybe_fe_ctrl);
+        call (maybe_fe_ctrl) = do_fetch();
+        call do_execute(maybe_fe_ctrl);
         call do_wb();
     }
 }

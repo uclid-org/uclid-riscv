@@ -108,7 +108,7 @@ module main {
                 i_state' = WAITING;
             }
             (i_state == WAITING) : {
-                if (impl.fe_pc == GOAL_PC) {
+                if (impl.fe_pc == GOAL_PC && !impl.fe_ctrl.killed) {
                     flush' = true;
                     i_state' = FLUSH;
                 }

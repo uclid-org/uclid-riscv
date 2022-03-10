@@ -40,7 +40,7 @@ module main {
     const IMEM_PC_START : bv30 = 0x20000000bv30;
     const PC_START : bv32 = 0x80000000bv32;
 
-    const GOAL_PC : bv32 = 0x80000000bv32;
+    const GOAL_PC : bv32 = 0x80000010bv32;
 
     procedure random_inst() returns (new_inst : inst_t) modifies ec; {
         // randomly generate an instruction
@@ -60,9 +60,9 @@ module main {
         assume (stype_i.inst == SB);
         // avoid generating misaligned jump targets
         // also avoid 0 jumps, which mess up the PC checks
-        // this does not restrict jalr
         assume (btype_i.imm[1:0] == 0bv2 && btype_i.imm != 0bv13);
         assume (jal_i.imm[1:0] == 0bv2 && jal_i.imm != 0bv21);
+        assume (jalr_i.imm[1:0] == 0bv2 && jalr_i.imm != 0bv12);
         // instruction encoding
         case
             (i_choice == 0bv4) : { call (new_inst) = ec.encode_rtype(rtype_i); }
@@ -115,8 +115,7 @@ module main {
                 i_state' = WAITING;
             }
             (i_state == WAITING) : {
-                // TODO add predicate for inst kill to allow other target PCs
-                if (impl.fe_pc == GOAL_PC) {
+                if (impl.fe_pc == GOAL_PC && !impl.fe_ctrl.killed) {
                     flush' = true;
                     i_state' = FLUSH;
                 }
